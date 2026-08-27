@@ -1,0 +1,1030 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>스마트 멀티시트 엑셀 병합기</title>
+  
+  <!-- 엑셀 암호 해독 및 바이너리 파싱을 위한 전용 모듈 모음 -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/shim.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/cpexcel@1.0.0/dist/cpexcel.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/jszip.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <!-- 실제 파일 암호화(MS-OFFCRYPTO Agile Encryption) 해독을 위한 저수준 암호화 라이브러리 -->
+  <script src="https://cdn.jsdelivr.net/npm/node-forge@1.3.1/dist/forge.min.js"></script>
+
+  <!-- 광고 배너용 Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, Roboto, sans-serif; background: #f8fafc; margin: 0; padding: 40px 20px; color: #334155; display: flex; justify-content: center; align-items: flex-start; min-height: 100vh; }
+
+    .app-container { display: grid; grid-template-columns: 220px 1fr; gap: 30px; max-width: 1900px; width: 100%; margin: 0 auto; align-items: start; }
+
+    /* 좌측 광고 사이드바 */
+    .sidebar { width: 220px; display: flex; flex-direction: column; gap: 20px; }
+    .banner-card { background: white; border: 1px solid #e2e8f0; border-radius: 12px; padding: 14px; box-shadow: 0 2px 8px rgba(0,0,0,0.03); display: flex; flex-direction: column; align-items: center; text-align: center; transition: transform 0.2s, box-shadow 0.2s; }
+    .banner-card:hover { transform: translateY(-2px); box-shadow: 0 6px 14px rgba(0,0,0,0.08); }
+    .banner-card img { width: 100%; height: 150px; object-fit: cover; border-radius: 8px; margin-bottom: 10px; background-color: #f8fafc; }
+    .banner-card h4 { margin: 6px 0 4px 0; font-size: 16px; color: #1e293b; word-break: keep-all; }
+    .banner-card p { font-size: 14px; color: #64748b; margin: 0 0 10px 0; line-height: 1.4; word-break: keep-all; }
+    .banner-card a { display: inline-block; width: 100%; padding: 8px 0; background-color: #f1f5f9; color: #2563eb; text-decoration: none; font-size: 14px; font-weight: bold; border-radius: 6px; transition: background 0.2s; }
+    .banner-card a:hover { background-color: #e2e8f0; }
+
+    .main-content { width: 100%; background: white; border: 1px solid #e2e8f0; border-radius: 16px; padding: 36px; box-shadow: 0 6px 20px rgba(0,0,0,0.05); display: flex; flex-direction: column; min-height: 88vh; }
+
+    h2 { margin: 0; color: #0f172a; font-size: 1.5rem; line-height: 1.3; display: flex; align-items: center; gap: 8px; justify-content: center; }
+    .badge { background: #dcfce7; color: #166534; font-size: 0.8rem; padding: 4px 8px; border-radius: 4px; font-weight: 600; }
+
+    .security-banner { background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 10px; padding: 16px; color: #166534; font-size: 15px; line-height: 1.55; overflow-y: auto; width: 100%; }
+    .security-banner strong { font-size: 16px; display: block; margin-bottom: 6px; color: #15803d; }
+    .security-banner ul { margin: 6px 0 0 0; padding-left: 18px; }
+
+    /* 상단 20% : 하단 80% 영역 분할 (PDF 병합기와 동일 구조) */
+    .top-section { flex: 0 0 20%; min-height: 150px; display: flex; align-items: stretch; gap: 14px; margin-bottom: 20px; }
+    .top-col-title { flex: 0 0 22%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; text-align: center; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px 10px; }
+    .title-icon { font-size: 2rem; line-height: 1; }
+    .title-main { margin: 0; color: #0f172a; font-size: 1.25rem; font-weight: 800; line-height: 1.3; letter-spacing: -0.3px; display: block; }
+    .btn-reset { margin-top: 2px; padding: 6px 16px; background: white; border: 1.5px solid #ef4444; color: #ef4444; border-radius: 20px; font-size: 0.8rem; font-weight: 700; cursor: pointer; transition: background 0.15s, color 0.15s; }
+    .btn-reset:hover { background: #ef4444; color: white; }
+    .btn-reset:disabled { border-color: #cbd5e1; color: #94a3b8; cursor: not-allowed; background: white; }
+    .top-col-guide { flex: 1 1 46%; display: flex; min-width: 0; }
+    .top-col-drop { flex: 0 0 32%; display: flex; }
+    .top-col-drop .drop-zone { flex: 1; margin-bottom: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+
+    .drop-zone { border: 2px dashed #3b82f6; border-radius: 12px; padding: 24px; text-align: center; background-color: #eff6ff; cursor: pointer; margin-bottom: 20px; font-size: 16px; transition: background-color 0.2s, border-color 0.2s; }
+    .drop-zone:hover, .drop-zone.highlight { background-color: #dbeafe; border-color: #1d4ed8; }
+
+    .option-box { background: #f1f5f9; border: 1px solid #cbd5e1; padding: 14px 18px; border-radius: 8px; margin-bottom: 20px; display: flex; align-items: center; gap: 20px; flex-wrap: wrap; }
+    .option-box label { font-size: 0.95rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 6px; }
+
+    /* 하단 80% : 목록/미리보기 편집 영역 (개별 리사이즈 가능, PDF 병합기와 동일 방식) */
+    .editor-layout { display: flex; flex-wrap: nowrap; align-items: stretch; gap: 0; margin-bottom: 8px; flex: 1 1 80%; min-height: 0; }
+    .editor-resizer { flex: 0 0 14px; width: 14px; background: #f1f5f9; cursor: col-resize; margin: 0 4px; border-radius: 4px; display: flex; align-items: center; justify-content: center; transition: background 0.2s; user-select: none; align-self: stretch; }
+    .editor-resizer::before { content: '⋮'; color: #94a3b8; font-size: 14px; font-weight: bold; }
+    .editor-resizer:hover, .editor-resizer.resizing { background: #2563eb; }
+    .editor-resizer:hover::before, .editor-resizer.resizing::before { color: white; }
+
+    .file-list-container { flex: 0 0 calc(50% - 7px); min-width: 340px; max-width: 80%; border: 1px solid #e2e8f0; border-radius: 10px; background: #fafafa; height: 100%; min-height: 300px; max-height: 90vh; overflow: auto; padding: 12px; resize: vertical; }
+    .file-name-cell { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .file-table-wrapper { overflow-x: auto; max-height: none; overflow-y: visible; border: 1px solid #e2e8f0; border-radius: 6px; }
+    table { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 0.875rem; text-align: left; }
+    th { background: #f8fafc; padding: 10px 12px; border-bottom: 1px solid #e2e8f0; color: #64748b; font-weight: 600; position: sticky; top: 0; white-space: nowrap; }
+    td { padding: 8px 12px; border-bottom: 1px solid #f1f5f9; vertical-align: middle; }
+
+    tr.draggable-row { cursor: grab; user-select: none; }
+    tr.draggable-row:active { cursor: grabbing; }
+    tr.dragging { opacity: 0.4; background: #e2e8f0; }
+    tr.drag-over { border-top: 2px solid #2563eb; }
+    tr.selected-row { background: #eff6ff; }
+    tr.selected-row td { box-shadow: inset 0 1px 0 #bfdbfe, inset 0 -1px 0 #bfdbfe; }
+    tr.draggable-row:hover { background: #f8fafc; cursor: pointer; }
+    .drag-handle { color: #94a3b8; font-weight: bold; cursor: grab; text-align: center; width: 30px; }
+    .num-col { font-weight: 600; color: #64748b; text-align: center; width: 55px; }
+    .num-col-inner { display: flex; align-items: center; justify-content: center; gap: 5px; }
+    .btn-del-x { border: none; background: transparent; color: #cbd5e1; font-weight: 800; font-size: 0.85rem; line-height: 1; padding: 2px 5px; border-radius: 4px; cursor: pointer; transition: background 0.15s, color 0.15s; }
+    .btn-del-x:hover { background: #fee2e2; color: #ef4444; }
+
+    input[type="password"], select { padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 0.85rem; }
+    .pass-container { display: flex; gap: 4px; align-items: center; }
+    .pass-container input { width: 90px; }
+
+    .btn-action { padding: 6px 10px; background: #2563eb; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.8rem; white-space: nowrap; }
+    .btn-action:hover { background: #1d4ed8; }
+    .btn-pass { background: #475569; }
+    .btn-pass:hover { background: #334155; }
+    .btn-del { background: #ef4444; }
+    .btn-del:hover { background: #dc2626; }
+
+    .preview-panel { flex: 0 0 calc(50% - 7px); min-width: 320px; max-width: 85%; border: 1px solid #e2e8f0; border-radius: 10px; background: #fafafa; padding: 16px; display: flex; flex-direction: column; height: 100%; min-height: 300px; max-height: 90vh; overflow: auto; resize: both; }
+    .preview-table-wrapper { flex: 1; overflow: auto; max-height: none; background: white; border: 1px solid #cbd5e1; margin-top: 10px; }
+    .preview-table th, .preview-table td { border: 1px solid #cbd5e1; padding: 4px 6px; font-size: 0.75rem; white-space: nowrap; }
+    .preview-table th { background: #f1f5f9; }
+
+    .merge-btn { width: 100%; padding: 16px; background: #10b981; color: white; border: none; border-radius: 10px; font-size: 1.1rem; font-weight: 700; cursor: pointer; margin-top: 20px; }
+    .merge-btn:disabled { background: #cbd5e1; cursor: not-allowed; }
+
+    /* 관리자 배너 편집 모달 */
+    .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); justify-content: center; align-items: center; z-index: 1000; }
+    .modal-content { background: white; padding: 28px; border-radius: 14px; width: 480px; max-height: 85vh; overflow-y: auto; }
+    .modal-content h3 { margin-top: 0; font-size: 20px; }
+    .input-group { margin-bottom: 14px; text-align: left; }
+    .input-group label { display: block; font-size: 14px; font-weight: bold; margin-bottom: 6px; color: #334155; }
+    .input-group input, .input-group textarea, .input-group select { width: 100%; padding: 10px; font-size: 15px; border: 1px solid #cbd5e1; border-radius: 6px; }
+    .modal-btns { display: flex; gap: 10px; margin-top: 24px; }
+    .modal-btns button { flex: 1; padding: 12px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 15px; }
+    .btn-save { background: #2563eb; color: white; }
+    .btn-close { background: #e2e8f0; color: #334155; }
+
+    @media (max-width: 1180px) {
+      .app-container { display: flex; flex-direction: column; align-items: center; }
+      .sidebar { width: 100%; max-width: 900px; display: grid; grid-template-columns: repeat(4, 1fr); }
+      .main-content { min-height: auto; }
+      .top-section { flex-direction: column; flex-basis: auto; height: auto; }
+      .top-col-title, .top-col-guide, .top-col-drop { flex-basis: auto; width: 100%; }
+      .editor-layout { flex-direction: column; flex-basis: auto; }
+      .file-list-container, .preview-panel { flex-basis: auto; width: 100%; max-width: 100%; }
+      .file-list-container { height: 320px; }
+      .preview-panel { height: 480px; }
+      .editor-resizer { display: none; }
+    }
+    @media (max-width: 640px) {
+      .sidebar { grid-template-columns: repeat(2, 1fr); }
+    }
+  </style>
+</head>
+<body>
+
+<div class="app-container">
+  <div class="sidebar">
+    <div class="banner-card" id="card-1"></div>
+    <div class="banner-card" id="card-2"></div>
+    <div class="banner-card" id="card-3"></div>
+    <div class="banner-card" id="card-4"></div>
+  </div>
+
+  <div class="main-content">
+  <div class="top-section">
+    <div class="top-col-title">
+      <div class="title-icon">📊</div>
+      <h2 class="title-main">스마트 엑셀<br>병합기</h2>
+      <span class="badge">🔒 100% 메모리 보안 처리</span>
+      <button class="btn-reset" id="reset-btn" onclick="resetAll()" disabled>🗑️ 초기화</button>
+    </div>
+
+    <div class="top-col-guide">
+      <div class="security-banner">
+        <strong>🔒 개인정보 및 파일 보안 100% 보장</strong>
+        <ul>
+          <li><strong>외부 서버 전송 Zero:</strong> 엑셀 파일 데이터는 외부 서버로 전송되지 않고, 모든 병합·해독 작업이 브라우저 안에서만 처리됩니다.</li>
+          <li><strong>🔑 암호 걸린 파일도 지원:</strong> 실제로 암호가 걸린(AES 암호화) 엑셀 파일도 암호 입력만으로 브라우저에서 직접 해독하여 병합할 수 있습니다.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="top-col-drop">
+      <div class="drop-zone" id="drop-zone">
+        📁 <strong>클릭하거나 엑셀 파일들을 이곳으로 끌어다 놓으세요</strong>
+        <input type="file" id="file-input" multiple accept=".xlsx, .xls, .csv" style="display:none;">
+      </div>
+    </div>
+  </div>
+
+  <div class="option-box">
+    <span>📌 <strong>취합 방식 선택:</strong></span>
+    <label>
+      <input type="radio" name="merge-mode" value="single" checked onchange="toggleModeUI()">
+      지정한 시트들을 하나의 시트로 합치기
+    </label>
+    <label>
+      <input type="radio" name="merge-mode" value="multi" onchange="toggleModeUI()">
+      시트명이 같은 것끼리 시트별로 각각 합치기 (모든 시트 자동 취합)
+    </label>
+  </div>
+
+  <div class="editor-layout">
+    <div class="file-list-container" id="left-panel">
+      <h3 style="margin-top: 0;">📋 업로드 목록 (<span id="file-count">0</span>) <small style="font-size:0.8rem; font-weight:normal; color:#64748b;">(☰ 핸들로 순서 변경 · 모서리를 드래그하여 크기 조절)</small></h3>
+      <div class="file-table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 55px; text-align: center;">No.</th>
+              <th style="width: 30px;"></th>
+              <th>파일명</th>
+              <th style="width: 150px;">암호 입력</th>
+              <th style="width: 120px;" class="sheet-col">대상 시트</th>
+            </tr>
+          </thead>
+          <tbody id="file-list-body">
+            <tr><td colspan="5" style="text-align: center; color: #94a3b8; padding: 20px;">첨부된 파일이 없습니다.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="editor-resizer" id="editor-resizer"></div>
+
+    <div class="preview-panel" id="right-panel">
+        <h3 style="margin-top:0; font-size: 1.1rem;">👁️ 시트 데이터 미리보기 <br><small id="preview-title" style="font-weight:normal; font-size:0.8rem; color:#64748b;"></small></h3>
+        <div class="preview-table-wrapper" id="preview-wrapper">
+          <p style="text-align:center; color:#94a3b8; margin-top: 50px; font-size:0.85rem;">목록에서 파일을 클릭하면 표시됩니다.</p>
+        </div>
+    </div>
+  </div>
+
+  <button class="merge-btn" id="merge-btn" disabled>중복 목차/무의미한 빈 행 제외 후 엑셀 병합 및 다운로드</button>
+  </div>
+</div>
+
+<div class="modal" id="adminModal">
+  <div class="modal-content">
+    <h3>⚙️ 좌측 배너 수시 편집 (총 4개)</h3>
+    <div class="input-group">
+      <label>편집할 카드 위치 선택</label>
+      <select id="editCardSelect" onchange="loadCardDataToForm()">
+        <option value="1">1번 카드 (상단)</option>
+        <option value="2">2번 카드</option>
+        <option value="3">3번 카드</option>
+        <option value="4">4번 카드 (하단)</option>
+      </select>
+    </div>
+    <div class="input-group">
+      <label>제목</label>
+      <input type="text" id="editTitle" placeholder="예: 주요 공지사항" />
+    </div>
+    <div class="input-group">
+      <label>설명 문구</label>
+      <textarea id="editDesc" rows="2" placeholder="예: 관련 링크를 클릭하세요."></textarea>
+    </div>
+    <div class="input-group">
+      <label>이미지 URL</label>
+      <input type="text" id="editImgUrl" placeholder="https://example.com/banner.png" />
+    </div>
+    <div class="input-group">
+      <label>이동할 링크 (URL)</label>
+      <input type="text" id="editLinkUrl" placeholder="https://example.com" />
+    </div>
+    <div class="input-group">
+      <label>링크 버튼 이름</label>
+      <input type="text" id="editBtnText" placeholder="예: 바로가기" />
+    </div>
+    <div class="modal-btns">
+      <button class="btn-save" onclick="saveCardData()">저장하기</button>
+      <button class="btn-close" onclick="closeAdminModal()">닫기</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  // ---- 광고 배너(좌측 사이드바) : Firestore 연동 ----
+  // PDF 병합기와 동일한 Firebase 프로젝트를 재사용하되, 문서 경로를 분리해 서로 데이터가 섞이지 않도록 함
+  const firebaseConfig = {
+    apiKey: "AIzaSyB1KB8TojybTREGiKJJukmgcGgtDTbZodA",
+    authDomain: "ezpdfmerger.firebaseapp.com",
+    projectId: "ezpdfmerger",
+    storageBucket: "ezpdfmerger.firebasestorage.app",
+    messagingSenderId: "613693021673",
+    appId: "1:613693021673:web:41982b69c1e70692e83f78",
+    measurementId: "G-P70QSP1WSV"
+  };
+  firebase.initializeApp(firebaseConfig);
+  const db = firebase.firestore();
+  const BANNER_DOC = 'excel_banners'; // PDF 병합기의 'banners' 문서와 겹치지 않도록 별도 문서 사용
+
+  const defaultCards = {};
+  for (let i = 1; i <= 4; i++) {
+    defaultCards[i] = {
+      title: `알림 배너 ${i}`,
+      desc: `클릭하면 해당 링크로 바로 연결됩니다.`,
+      img: "",
+      link: "#",
+      btnText: "자세히 보기"
+    };
+  }
+
+  let cachedCards = null;
+
+  function getCardData() {
+    return cachedCards || defaultCards;
+  }
+
+  function applyCardsToDOM(cards) {
+    for (let i = 1; i <= 4; i++) {
+      const cardEl = document.getElementById(`card-${i}`);
+      if (!cardEl) continue;
+      const data = cards[i] || defaultCards[i];
+      const imgTag = data.img ? `<img src="${data.img}" alt="banner" />` : '';
+      cardEl.innerHTML = `
+        ${imgTag}
+        <h4>${data.title}</h4>
+        <p>${data.desc}</p>
+        <a href="${data.link}" target="_blank">${data.btnText}</a>
+      `;
+    }
+  }
+
+  async function fetchAndRenderBanners() {
+    try {
+      const doc = await db.collection('settings').doc(BANNER_DOC).get();
+      cachedCards = (doc.exists && doc.data().cards)
+        ? { ...defaultCards, ...doc.data().cards }
+        : { ...defaultCards };
+    } catch (error) {
+      console.error('배너 데이터 불러오기 오류:', error);
+      cachedCards = { ...defaultCards };
+    }
+    applyCardsToDOM(cachedCards);
+  }
+
+  window.addEventListener('DOMContentLoaded', async () => {
+    await fetchAndRenderBanners();
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('admin') === 'true') {
+      openAdminModal();
+    }
+  });
+
+  async function openAdminModal() {
+    const inputPw = prompt("편집 권한 비밀번호를 입력하세요.");
+    if (!inputPw) {
+      window.history.replaceState({}, document.title, window.location.pathname);
+      return;
+    }
+    try {
+      const docRef = db.collection("settings").doc("admin");
+      const doc = await docRef.get();
+      if (doc.exists && doc.data().password === inputPw) {
+        document.getElementById('adminModal').style.display = 'flex';
+        loadCardDataToForm();
+      } else {
+        alert("비밀번호가 올바르지 않습니다.");
+        window.history.replaceState({}, document.title, window.location.pathname);
+      }
+    } catch (error) {
+      console.error("인증 오류:", error);
+      alert("비밀번호 검증 중 오류가 발생했습니다.");
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  }
+
+  function closeAdminModal() {
+    document.getElementById('adminModal').style.display = 'none';
+    window.history.replaceState({}, document.title, window.location.pathname);
+  }
+
+  function loadCardDataToForm() {
+    const id = document.getElementById('editCardSelect').value;
+    const cards = getCardData();
+    const data = cards[id] || defaultCards[id];
+    document.getElementById('editTitle').value = data.title;
+    document.getElementById('editDesc').value = data.desc;
+    document.getElementById('editImgUrl').value = data.img;
+    document.getElementById('editLinkUrl').value = data.link;
+    document.getElementById('editBtnText').value = data.btnText;
+  }
+
+  async function saveCardData() {
+    const id = document.getElementById('editCardSelect').value;
+    const cards = { ...getCardData() };
+    cards[id] = {
+      title: document.getElementById('editTitle').value,
+      desc: document.getElementById('editDesc').value,
+      img: document.getElementById('editImgUrl').value,
+      link: document.getElementById('editLinkUrl').value,
+      btnText: document.getElementById('editBtnText').value
+    };
+    try {
+      await db.collection('settings').doc(BANNER_DOC).set({ cards }, { merge: true });
+      cachedCards = cards;
+      applyCardsToDOM(cachedCards);
+      alert(`${id}번 배너 카드가 저장되었습니다! (모든 방문자에게 반영됩니다)`);
+    } catch (error) {
+      console.error('배너 저장 오류:', error);
+      alert('저장 중 오류가 발생했습니다. Firestore 쓰기 권한(보안 규칙)을 확인해주세요.');
+    }
+  }
+
+  // ---- 엑셀 병합기 본 기능 ----
+  const dropZone = document.getElementById('drop-zone');
+  const fileInput = document.getElementById('file-input');
+  const fileListBody = document.getElementById('file-list-body');
+  const fileCountUI = document.getElementById('file-count');
+  const mergeBtn = document.getElementById('merge-btn');
+  const previewWrapper = document.getElementById('preview-wrapper');
+  const previewTitle = document.getElementById('preview-title');
+
+  let fileDataList = [];
+  let draggedIndex = null;
+  let selectedPreviewIndex = null;
+
+  /* 업로드 목록 ↔ 미리보기 창 좌우 경계 리사이저 */
+  (function initEditorResizer() {
+    const resizerEl = document.getElementById('editor-resizer');
+    const leftEl = document.getElementById('left-panel');
+    const rightEl = document.getElementById('right-panel');
+    const layoutEl = document.querySelector('.editor-layout');
+    if (!resizerEl || !leftEl || !rightEl || !layoutEl) return;
+
+    let isResizing = false;
+
+    resizerEl.addEventListener('mousedown', (e) => {
+      isResizing = true;
+      resizerEl.classList.add('resizing');
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+      e.preventDefault();
+    });
+
+    document.addEventListener('mousemove', (e) => {
+      if (!isResizing) return;
+      const layoutRect = layoutEl.getBoundingClientRect();
+      const pointerRelativeX = e.clientX - layoutRect.left;
+      const minWidth = 320;
+      const maxWidth = layoutRect.width - minWidth - resizerEl.offsetWidth;
+      if (maxWidth <= minWidth) return;
+
+      let newLeftWidth = Math.max(minWidth, Math.min(pointerRelativeX, maxWidth));
+      leftEl.style.flex = `0 0 ${newLeftWidth}px`;
+      rightEl.style.flex = `1 1 auto`;
+    });
+
+    document.addEventListener('mouseup', () => {
+      if (isResizing) {
+        isResizing = false;
+        resizerEl.classList.remove('resizing');
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+      }
+    });
+  })();
+
+  dropZone.addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', (e) => handleFiles(Array.from(e.target.files)));
+
+  ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(ev => {
+    dropZone.addEventListener(ev, (e) => { e.preventDefault(); e.stopPropagation(); });
+  });
+  dropZone.addEventListener('dragenter', () => dropZone.classList.add('highlight'));
+  dropZone.addEventListener('dragover', () => dropZone.classList.add('highlight'));
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('highlight'));
+  dropZone.addEventListener('drop', (e) => {
+    dropZone.classList.remove('highlight');
+    handleFiles(Array.from(e.dataTransfer.files));
+  });
+
+  async function handleFiles(files) {
+    const validFiles = files.filter(f => f.name.match(/\.(xlsx|xls|csv)$/i));
+    for (const file of validFiles) {
+      const item = { id: Math.random().toString(36).substr(2, 9), file, workbook: null, password: '', selectedSheet: '' };
+      await parseWorkbook(item);
+      fileDataList.push(item);
+    }
+    updateUI();
+  }
+
+  // 첨부된 모든 파일을 목록에서 한 번에 제거
+  function resetAll() {
+    if (fileDataList.length === 0) return;
+    fileDataList = [];
+    draggedIndex = null;
+    selectedPreviewIndex = null;
+    fileInput.value = '';
+    previewTitle.textContent = '';
+    previewWrapper.innerHTML = '<p style="text-align:center; color:#94a3b8; margin-top: 50px; font-size:0.85rem;">목록에서 파일을 클릭하면 표시됩니다.</p>';
+    updateUI();
+  }
+
+  /* =========================================================================
+   * 실제 파일 암호화(MS-OFFCRYPTO Agile Encryption) 해독 엔진
+   * -------------------------------------------------------------------------
+   * SheetJS(xlsx) 커뮤니티 버전은 XLSX.read()의 password 옵션을 지원하지만,
+   * 이는 "통합 문서 보호(구조 잠금)" 같은 얕은 보호에만 동작하고,
+   * 실제로 암호가 걸려 실행 시 암호 입력창이 뜨는 파일(진짜 암호화된 파일)은
+   * OLE 컴파운드 파일(CFB) 컨테이너 안에 AES로 암호화되어 있어 해독하지 못합니다.
+   * 아래 코드는 [MS-OFFCRYPTO] 규격의 Agile Encryption(엑셀 2010 이후 기본 방식)을
+   * 순수 브라우저 환경(전송 없이, forge.js의 저수준 AES/해시 함수만 이용)에서
+   * 직접 해독합니다. 파일은 절대 서버로 전송되지 않습니다.
+   * ========================================================================= */
+  const AGILE_BLOCK_KEYS = {
+    key: Uint8Array.from([0x14, 0x6e, 0x0b, 0xe7, 0xab, 0xac, 0xd0, 0xd6]),
+    verifierInput: Uint8Array.from([0xfe, 0xa7, 0xd2, 0x76, 0x3b, 0x4b, 0x9e, 0x79]),
+    verifierValue: Uint8Array.from([0xd7, 0xaa, 0x0f, 0x6d, 0x30, 0x61, 0x34, 0x4e])
+  };
+
+  function u8ToBinStr(u8) {
+    let s = '';
+    for (let i = 0; i < u8.length; i++) s += String.fromCharCode(u8[i]);
+    return s;
+  }
+  function binStrToU8(s) {
+    const u8 = new Uint8Array(s.length);
+    for (let i = 0; i < s.length; i++) u8[i] = s.charCodeAt(i);
+    return u8;
+  }
+  function base64ToU8(b64) {
+    return binStrToU8(atob(b64));
+  }
+  function uint32LEBytes(n) {
+    return Uint8Array.from([n & 0xff, (n >>> 8) & 0xff, (n >>> 16) & 0xff, (n >>> 24) & 0xff]);
+  }
+  function passwordToUtf16LEBytes(password) {
+    const u8 = new Uint8Array(password.length * 2);
+    for (let i = 0; i < password.length; i++) {
+      const code = password.charCodeAt(i);
+      u8[i * 2] = code & 0xff;
+      u8[i * 2 + 1] = (code >> 8) & 0xff;
+    }
+    return u8;
+  }
+  function hashConcat(algorithm, buffers) {
+    const mdName = algorithm.toLowerCase();
+    if (!forge.md[mdName]) throw new Error('UNSUPPORTED_ENCRYPTION');
+    const md = forge.md[mdName].create();
+    buffers.forEach(b => md.update(u8ToBinStr(b)));
+    return binStrToU8(md.digest().getBytes());
+  }
+  function aesCbcDecryptNoPad(keyU8, ivU8, inputU8) {
+    const decipher = forge.cipher.createDecipher('AES-CBC', u8ToBinStr(keyU8));
+    decipher.start({ iv: u8ToBinStr(ivU8) });
+    decipher.update(forge.util.createBuffer(u8ToBinStr(inputU8)));
+    decipher.finish(() => true); // 패딩 제거 없이(raw) 그대로 사용 - Node의 setAutoPadding(false)와 동일
+    return binStrToU8(decipher.output.getBytes());
+  }
+  function convertPasswordToKey(password, hashAlgorithm, saltValue, spinCount, keyBits, blockKey) {
+    const pwBytes = passwordToUtf16LEBytes(password);
+    let key = hashConcat(hashAlgorithm, [saltValue, pwBytes]);
+    for (let i = 0; i < spinCount; i++) {
+      key = hashConcat(hashAlgorithm, [uint32LEBytes(i), key]);
+    }
+    key = hashConcat(hashAlgorithm, [key, blockKey]);
+    const keyBytes = keyBits / 8;
+    if (key.length < keyBytes) {
+      const tmp = new Uint8Array(keyBytes).fill(0x36);
+      tmp.set(key);
+      key = tmp;
+    } else if (key.length > keyBytes) {
+      key = key.slice(0, keyBytes);
+    }
+    return key;
+  }
+  function createAgileIV(hashAlgorithm, saltValue, blockSize, blockKeyOrIndex) {
+    const blockKey = (typeof blockKeyOrIndex === 'number') ? uint32LEBytes(blockKeyOrIndex) : blockKeyOrIndex;
+    let iv = hashConcat(hashAlgorithm, [saltValue, blockKey]);
+    if (iv.length < blockSize) {
+      const tmp = new Uint8Array(blockSize).fill(0x36);
+      tmp.set(iv);
+      iv = tmp;
+    } else if (iv.length > blockSize) {
+      iv = iv.slice(0, blockSize);
+    }
+    return iv;
+  }
+  function decryptAgilePackage(saltValue, blockSize, hashAlgorithm, packageKey, input) {
+    const CHUNK = 4096;
+    const OFFSET = 8; // 앞 8바이트는 해독 후 원본 길이(uint32le)를 담고 있음
+    const outputChunks = [];
+    let i = 0, start = 0, end = 0;
+    while (end < input.length) {
+      start = end;
+      end = start + CHUNK;
+      if (end > input.length) end = input.length;
+      let inputChunk = input.slice(start + OFFSET, end + OFFSET);
+      const remainder = inputChunk.length % blockSize;
+      if (remainder) {
+        const padded = new Uint8Array(inputChunk.length + (blockSize - remainder));
+        padded.set(inputChunk);
+        inputChunk = padded;
+      }
+      if (inputChunk.length > 0) {
+        const iv = createAgileIV(hashAlgorithm, saltValue, blockSize, i);
+        outputChunks.push(aesCbcDecryptNoPad(packageKey, iv, inputChunk));
+      }
+      i++;
+    }
+    let total = outputChunks.reduce((a, c) => a + c.length, 0);
+    let output = new Uint8Array(total);
+    let pos = 0;
+    for (const c of outputChunks) { output.set(c, pos); pos += c.length; }
+    const length = (input[0]) | (input[1] << 8) | (input[2] << 16) | (input[3] << 24);
+    return output.slice(0, length >>> 0);
+  }
+
+  // CFB(OLE 컴파운드 파일) 컨테이너에서 EncryptionInfo/EncryptedPackage 스트림을 꺼내
+  // 실제 암호를 해독하여 순수 xlsx(zip) 바이트를 반환한다.
+  function decryptAgileXlsx(fileArrayBuffer, password) {
+    const u8 = new Uint8Array(fileArrayBuffer);
+    let cfb;
+    try {
+      cfb = XLSX.CFB.read(u8, { type: 'array' });
+    } catch (e) {
+      throw new Error('NOT_ENCRYPTED');
+    }
+    const encInfoEntry = XLSX.CFB.find(cfb, 'EncryptionInfo');
+    const encPkgEntry = XLSX.CFB.find(cfb, 'EncryptedPackage');
+    if (!encInfoEntry || !encPkgEntry) throw new Error('NOT_ENCRYPTED');
+
+    let encInfo = encInfoEntry.content;
+    let encPkg = encPkgEntry.content;
+    if (!(encInfo instanceof Uint8Array)) encInfo = new Uint8Array(encInfo);
+    if (!(encPkg instanceof Uint8Array)) encPkg = new Uint8Array(encPkg);
+
+    const verMajor = encInfo[0] | (encInfo[1] << 8);
+    const verMinor = encInfo[2] | (encInfo[3] << 8);
+    if (!(verMajor === 4 && verMinor === 4)) {
+      // Standard/Extensible Encryption(구버전 Office 2007 방식) 등 - 별도 바이너리 포맷이라 미지원
+      throw new Error('UNSUPPORTED_ENCRYPTION');
+    }
+
+    const xmlStr = new TextDecoder('utf-8').decode(encInfo.slice(8));
+    const doc = new DOMParser().parseFromString(xmlStr, 'application/xml');
+    if (doc.getElementsByTagName('parsererror').length > 0) throw new Error('UNSUPPORTED_ENCRYPTION');
+
+    const keyDataEl = doc.getElementsByTagName('keyData')[0];
+    const encKeyEl = doc.getElementsByTagName('p:encryptedKey')[0] || doc.getElementsByTagName('encryptedKey')[0];
+    if (!keyDataEl || !encKeyEl) throw new Error('UNSUPPORTED_ENCRYPTION');
+
+    const pkg = {
+      saltValue: base64ToU8(keyDataEl.getAttribute('saltValue')),
+      hashAlgorithm: keyDataEl.getAttribute('hashAlgorithm'),
+      blockSize: parseInt(keyDataEl.getAttribute('blockSize'), 10)
+    };
+    const keyInfo = {
+      encryptedKeyValue: base64ToU8(encKeyEl.getAttribute('encryptedKeyValue')),
+      saltValue: base64ToU8(encKeyEl.getAttribute('saltValue')),
+      hashAlgorithm: encKeyEl.getAttribute('hashAlgorithm'),
+      spinCount: parseInt(encKeyEl.getAttribute('spinCount'), 10),
+      keyBits: parseInt(encKeyEl.getAttribute('keyBits'), 10),
+      encryptedVerifierHashInput: base64ToU8(encKeyEl.getAttribute('encryptedVerifierHashInput')),
+      encryptedVerifierHashValue: base64ToU8(encKeyEl.getAttribute('encryptedVerifierHashValue'))
+    };
+
+    // 1) 암호 검증용 verifier로 먼저 정확한 암호인지 확인 (틀린 암호를 명확히 구분하기 위함)
+    const verifierInputKey = convertPasswordToKey(password, keyInfo.hashAlgorithm, keyInfo.saltValue, keyInfo.spinCount, keyInfo.keyBits, AGILE_BLOCK_KEYS.verifierInput);
+    const verifierHashInput = aesCbcDecryptNoPad(verifierInputKey, keyInfo.saltValue, keyInfo.encryptedVerifierHashInput);
+    const verifierValueKey = convertPasswordToKey(password, keyInfo.hashAlgorithm, keyInfo.saltValue, keyInfo.spinCount, keyInfo.keyBits, AGILE_BLOCK_KEYS.verifierValue);
+    const verifierHashValueDecrypted = aesCbcDecryptNoPad(verifierValueKey, keyInfo.saltValue, keyInfo.encryptedVerifierHashValue);
+    const computedHash = hashConcat(keyInfo.hashAlgorithm, [verifierHashInput]);
+    let match = computedHash.length > 0;
+    for (let k = 0; k < computedHash.length; k++) {
+      if (computedHash[k] !== verifierHashValueDecrypted[k]) { match = false; break; }
+    }
+    if (!match) throw new Error('WRONG_PASSWORD');
+
+    // 2) 패키지(zip) 실제 해독용 키를 복호화한 뒤, 본문 전체를 해독
+    const key = convertPasswordToKey(password, keyInfo.hashAlgorithm, keyInfo.saltValue, keyInfo.spinCount, keyInfo.keyBits, AGILE_BLOCK_KEYS.key);
+    const packageKey = aesCbcDecryptNoPad(key, keyInfo.saltValue, keyInfo.encryptedKeyValue);
+
+    return decryptAgilePackage(pkg.saltValue, pkg.blockSize, pkg.hashAlgorithm, packageKey, encPkg);
+  }
+
+  // 암호 적용 파싱 비동기 로직
+  async function parseWorkbook(item) {
+    item.lastError = null;
+    try {
+      const buffer = await item.file.arrayBuffer();
+      const hasPassword = !!(item.password && item.password.trim() !== '');
+      let workbook = null;
+
+      // 1) 우선 SheetJS 기본 방식으로 시도 (암호가 없거나, 얕은 "통합문서 보호"인 경우 여기서 바로 열림)
+      try {
+        const options = { type: 'array' };
+        if (hasPassword) options.password = item.password.trim();
+        workbook = XLSX.read(buffer, options);
+      } catch (e1) {
+        workbook = null;
+      }
+
+      // 2) 실패했고 암호가 입력된 경우 → 실제 파일 암호화(CFB/AES) 해독을 직접 시도
+      if (!workbook && hasPassword) {
+        try {
+          const decrypted = decryptAgileXlsx(buffer, item.password.trim());
+          workbook = XLSX.read(decrypted, { type: 'array' });
+        } catch (e2) {
+          item.workbook = null;
+          item.lastError = e2 && e2.message ? e2.message : 'UNKNOWN';
+          return false;
+        }
+      }
+
+      if (workbook && workbook.SheetNames && workbook.SheetNames.length > 0) {
+        item.workbook = workbook;
+        if (!item.selectedSheet || !workbook.SheetNames.includes(item.selectedSheet)) {
+          item.selectedSheet = workbook.SheetNames[0];
+        }
+        return true;
+      } else {
+        item.workbook = null;
+        if (!item.lastError) item.lastError = hasPassword ? 'WRONG_PASSWORD' : 'PASSWORD_REQUIRED';
+        return false;
+      }
+    } catch (err) {
+      item.workbook = null;
+      item.lastError = err && err.message ? err.message : 'UNKNOWN';
+      return false;
+    }
+  }
+
+  function toggleModeUI() {
+    const isMultiMode = document.querySelector('input[name="merge-mode"]:checked').value === 'multi';
+    document.querySelectorAll('.sheet-col').forEach(el => {
+      el.style.display = isMultiMode ? 'none' : '';
+    });
+  }
+
+  function updateUI() {
+    const resetBtn = document.getElementById('reset-btn');
+    if (fileDataList.length === 0) {
+      fileListBody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: #94a3b8; padding: 20px;">첨부된 파일이 없습니다.</td></tr>';
+      mergeBtn.disabled = true;
+      fileCountUI.textContent = '0';
+      if (resetBtn) resetBtn.disabled = true;
+      return;
+    }
+    if (resetBtn) resetBtn.disabled = false;
+
+    fileListBody.innerHTML = '';
+    fileCountUI.textContent = fileDataList.length;
+
+    const isMultiMode = document.querySelector('input[name="merge-mode"]:checked').value === 'multi';
+
+    fileDataList.forEach((item, index) => {
+      const tr = document.createElement('tr');
+      tr.className = 'draggable-row' + (selectedPreviewIndex === index ? ' selected-row' : '');
+      tr.draggable = true;
+      tr.dataset.index = index;
+
+      tr.addEventListener('dragstart', handleDragStart);
+      tr.addEventListener('dragover', handleDragOver);
+      tr.addEventListener('dragleave', handleDragLeave);
+      tr.addEventListener('drop', handleDrop);
+      tr.addEventListener('dragend', handleDragEnd);
+
+      // 행을 클릭하면(입력/버튼 등 조작 요소 제외) 바로 미리보기 표시
+      tr.addEventListener('click', (e) => {
+        if (e.target.closest('input, select, button')) return;
+        if (item.workbook) {
+          selectedPreviewIndex = index;
+          renderPreview(index);
+          document.querySelectorAll('#file-list-body tr').forEach(r => r.classList.remove('selected-row'));
+          tr.classList.add('selected-row');
+        }
+      });
+
+      // 순번 + 삭제(X)
+      const tdNum = document.createElement('td');
+      tdNum.className = 'num-col';
+      const numInner = document.createElement('div');
+      numInner.className = 'num-col-inner';
+      const numSpan = document.createElement('span');
+      numSpan.textContent = index + 1;
+      const btnDelX = document.createElement('button');
+      btnDelX.className = 'btn-del-x';
+      btnDelX.textContent = '✕';
+      btnDelX.title = '이 파일 삭제';
+      btnDelX.onclick = (e) => {
+        e.stopPropagation();
+        fileDataList.splice(index, 1);
+        if (selectedPreviewIndex === index) selectedPreviewIndex = null;
+        updateUI();
+      };
+      numInner.appendChild(numSpan);
+      numInner.appendChild(btnDelX);
+      tdNum.appendChild(numInner);
+      tr.appendChild(tdNum);
+
+      // 핸들
+      const tdHandle = document.createElement('td');
+      tdHandle.className = 'drag-handle';
+      tdHandle.innerHTML = '☰';
+      tr.appendChild(tdHandle);
+
+      // 파일명
+      const tdName = document.createElement('td');
+      tdName.className = 'file-name-cell';
+      tdName.textContent = item.file.name;
+      tdName.title = item.file.name;
+      tr.appendChild(tdName);
+
+      // 암호 입력 필드
+      const tdPass = document.createElement('td');
+      const passWrap = document.createElement('div');
+      passWrap.className = 'pass-container';
+
+      const passInput = document.createElement('input');
+      passInput.type = 'password';
+      passInput.placeholder = '암호 입력';
+      passInput.value = item.password;
+      
+      // 타이핑 시 값만 변수에 담음 (포커스 유실 차단)
+      passInput.oninput = (e) => {
+        item.password = e.target.value;
+      };
+
+      // 엔터 또는 포커스 아웃(입력 완료) 시 팝업 없이 바로 해독 실행
+      passInput.onkeydown = (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          passInput.blur(); // blur 이벤트가 해독을 트리거함 (중복 호출 방지)
+        }
+      };
+      passInput.onblur = async () => {
+        if (item.password && item.password.trim() !== '' && !item.workbook) {
+          await applyPassword(item);
+        }
+      };
+
+      const btnPassApply = document.createElement('button');
+      btnPassApply.className = 'btn-action btn-pass';
+      btnPassApply.textContent = '적용';
+      btnPassApply.onclick = async () => {
+        await applyPassword(item);
+      };
+
+      passWrap.appendChild(passInput);
+      passWrap.appendChild(btnPassApply);
+      tdPass.appendChild(passWrap);
+      tr.appendChild(tdPass);
+
+      // 대상 시트 선택 / 상태 표시
+      const tdSheet = document.createElement('td');
+      tdSheet.className = 'sheet-col';
+      if (isMultiMode) tdSheet.style.display = 'none';
+
+      if (item.workbook) {
+        const select = document.createElement('select');
+        item.workbook.SheetNames.forEach(sheetName => {
+          const opt = document.createElement('option');
+          opt.value = sheetName;
+          opt.textContent = sheetName;
+          if (sheetName === item.selectedSheet) opt.selected = true;
+          select.appendChild(opt);
+        });
+        select.onchange = (e) => {
+          item.selectedSheet = e.target.value;
+          if (selectedPreviewIndex === index) renderPreview(index);
+        };
+        tdSheet.appendChild(select);
+      } else {
+        const statusMessages = {
+          WRONG_PASSWORD: '❌ 암호가 틀렸습니다',
+          UNSUPPORTED_ENCRYPTION: '⚠️ 미지원 암호화 방식',
+          NOT_ENCRYPTED: '⚠️ 파일 구조 오류',
+          PASSWORD_REQUIRED: '🔒 암호 필요'
+        };
+        const msg = statusMessages[item.lastError] || '🔒 암호 필요';
+        tdSheet.innerHTML = `<span style="color:#ef4444; font-size:0.75rem; font-weight:600;">${msg}</span>`;
+      }
+      tr.appendChild(tdSheet);
+
+      fileListBody.appendChild(tr);
+    });
+
+    const readyCount = fileDataList.filter(i => i.workbook !== null).length;
+    mergeBtn.disabled = readyCount < 1;
+  }
+
+  // 암호 확인 함수 (팝업 없이 즉시 해독 시도, 상태는 목록의 상태 표시로 확인)
+  async function applyPassword(item) {
+    if (!item.password || item.password.trim() === '') return;
+    if (item._busy) return; // 중복 호출(블러+버튼 동시 발생 등) 방지
+    item._busy = true;
+    try {
+      await parseWorkbook(item);
+    } finally {
+      item._busy = false;
+    }
+    updateUI();
+  }
+
+  function handleDragStart(e) { draggedIndex = Number(this.dataset.index); this.classList.add('dragging'); }
+  function handleDragOver(e) { e.preventDefault(); this.classList.add('drag-over'); }
+  function handleDragLeave() { this.classList.remove('drag-over'); }
+  function handleDrop(e) {
+    e.preventDefault();
+    this.classList.remove('drag-over');
+    const targetIndex = Number(this.dataset.index);
+    if (draggedIndex !== null && draggedIndex !== targetIndex) {
+      const movedItem = fileDataList.splice(draggedIndex, 1)[0];
+      fileDataList.splice(targetIndex, 0, movedItem);
+      updateUI();
+    }
+  }
+  function handleDragEnd() { this.classList.remove('dragging'); document.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over')); }
+
+  // 미리보기
+  function renderPreview(index) {
+    const item = fileDataList[index];
+    if (!item.workbook) return;
+
+    const targetSheetName = item.selectedSheet || item.workbook.SheetNames[0];
+    const sheet = item.workbook.Sheets[targetSheetName];
+    const htmlString = XLSX.utils.sheet_to_html(sheet, { header: '', footer: '' });
+
+    previewTitle.textContent = `${item.file.name} [${targetSheetName}]`;
+    previewWrapper.innerHTML = htmlString;
+    const table = previewWrapper.querySelector('table');
+    if (table) table.className = 'preview-table';
+  }
+
+  // 무의미한 행 검사
+  const isEmptyOrMeaninglessRow = (row) => {
+    if (!row || row.length === 0) return true;
+    
+    const isAllBlank = row.every(cell => String(cell ?? '').trim() === '');
+    if (isAllBlank) return true;
+
+    const restCells = row.slice(1);
+    const isRestBlank = restCells.every(cell => String(cell ?? '').trim() === '');
+    if (isRestBlank) return true;
+
+    return false;
+  };
+
+  // 병합 로직
+  mergeBtn.addEventListener('click', () => {
+    const mode = document.querySelector('input[name="merge-mode"]:checked').value;
+    const newWorkbook = XLSX.utils.book_new();
+
+    if (mode === 'single') {
+      let finalRows = [];
+      let isFirstFile = true;
+      let maxColLength = 0;
+
+      fileDataList.forEach(item => {
+        if (!item.workbook || !item.selectedSheet) return;
+        const sheet = item.workbook.Sheets[item.selectedSheet];
+        const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+
+        let isFirstValidRowInFile = true;
+
+        rows.forEach((row) => {
+          if (isEmptyOrMeaninglessRow(row)) return;
+
+          const rowCopy = [...row];
+
+          if (isFirstValidRowInFile) {
+            isFirstValidRowInFile = false;
+            
+            if (isFirstFile) {
+              maxColLength = rowCopy.length;
+              rowCopy.push("출처 파일명");
+              finalRows.push(rowCopy);
+              isFirstFile = false;
+            }
+            return;
+          }
+
+          while (rowCopy.length < maxColLength) rowCopy.push('');
+          rowCopy.push(item.file.name);
+          finalRows.push(rowCopy);
+        });
+      });
+
+      if (finalRows.length === 0) { alert("병합할 유효한 데이터가 없습니다."); return; }
+      const newSheet = XLSX.utils.aoa_to_sheet(finalRows);
+      XLSX.utils.book_append_sheet(newWorkbook, newSheet, "통합_결과");
+
+    } else {
+      const sheetGroups = {};
+      const firstFileFlags = {};
+      const maxColsPerSheet = {};
+
+      fileDataList.forEach(item => {
+        if (!item.workbook) return;
+
+        item.workbook.SheetNames.forEach(sheetName => {
+          if (!sheetGroups[sheetName]) {
+            sheetGroups[sheetName] = [];
+            firstFileFlags[sheetName] = true;
+            maxColsPerSheet[sheetName] = 0;
+          }
+
+          const sheet = item.workbook.Sheets[sheetName];
+          const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+
+          let isFirstValidRowInFile = true;
+
+          rows.forEach((row) => {
+            if (isEmptyOrMeaninglessRow(row)) return;
+
+            const rowCopy = [...row];
+
+            if (isFirstValidRowInFile) {
+              isFirstValidRowInFile = false;
+              if (firstFileFlags[sheetName]) {
+                maxColsPerSheet[sheetName] = rowCopy.length;
+                rowCopy.push("출처 파일명");
+                sheetGroups[sheetName].push(rowCopy);
+                firstFileFlags[sheetName] = false;
+              }
+              return;
+            }
+
+            while (rowCopy.length < maxColsPerSheet[sheetName]) rowCopy.push('');
+            rowCopy.push(item.file.name);
+            sheetGroups[sheetName].push(rowCopy);
+          });
+        });
+      });
+
+      const sheetNames = Object.keys(sheetGroups);
+      if (sheetNames.length === 0) { alert("병합할 유효한 데이터가 없습니다."); return; }
+
+      sheetNames.forEach(sName => {
+        const sheetData = sheetGroups[sName];
+        if (sheetData.length > 0) {
+          const newSheet = XLSX.utils.aoa_to_sheet(sheetData);
+          XLSX.utils.book_append_sheet(newWorkbook, newSheet, sName);
+        }
+      });
+    }
+
+    XLSX.writeFile(newWorkbook, "엑셀_통합_결과.xlsx");
+  });
+</script>
+
+</body>
+</html>

@@ -4,6 +4,11 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>스마트 엑셀 병합기</title>
+
+  <!-- 제목/본문에 쓰이는 Pretendard 폰트를 실제로 불러온다 -->
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <!-- 제목 전용 폰트: Jua (둥글고 귀여운 스타일) -->
+  <link href="https://fonts.googleapis.com/css2?family=Jua&display=swap" rel="stylesheet">
   
   <!-- 엑셀 암호 해독 및 바이너리 파싱을 위한 전용 모듈 모음 -->
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/shim.min.js"></script>
@@ -15,9 +20,24 @@
 
   <style>
     * { box-sizing: border-box; }
-    body { font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, Roboto, sans-serif; background: #f8fafc; margin: 0; padding: 40px 20px; color: #334155; display: flex; justify-content: center; align-items: flex-start; min-height: 100vh; }
 
-    .app-container { display: grid; grid-template-columns: 1fr; gap: 30px; max-width: 1900px; width: 100%; margin: 0 auto; align-items: start; }
+    /* 클릭 가능한 요소는 전부 부드럽게 반응하도록 기본 트랜지션을 깔아준다 */
+    button, .btn-reset, .btn-del-x, .btn-action, .merge-btn,
+    .top-col-title, .security-banner, .file-list-container, .preview-panel, .option-box {
+      transition: background-color 0.18s ease, color 0.18s ease, border-color 0.18s ease,
+                  box-shadow 0.18s ease, transform 0.12s ease;
+    }
+    button:active, .btn-reset:active, .btn-action:active, .merge-btn:not(:disabled):active {
+      transform: scale(0.96);
+    }
+    body { font-family: 'Pretendard Variable', 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, Roboto, sans-serif; background: #f8fafc; margin: 0; padding: 40px 20px; color: #334155; display: flex; justify-content: center; align-items: flex-start; min-height: 100vh; }
+
+    .app-container { display: grid; grid-template-columns: 1fr; gap: 30px; max-width: 1900px; width: 100%; margin: 0 auto; align-items: start; animation: app-fade-in 0.4s ease; }
+
+    @keyframes app-fade-in {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
 
     .main-content { width: 100%; background: white; border: 1px solid #e2e8f0; border-radius: 16px; padding: 36px; box-shadow: 0 6px 20px rgba(0,0,0,0.05); display: flex; flex-direction: column; min-height: 88vh; }
 
@@ -37,6 +57,7 @@
       width: 100%;
       box-shadow: 0 1px 3px rgba(16, 24, 40, 0.04), 0 1px 2px rgba(16, 24, 40, 0.03);
     }
+    .security-banner:hover { border-color: #86efac; box-shadow: 0 6px 16px rgba(22,163,74,0.12); transform: translateY(-1px); }
     .security-banner-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
     .security-banner-header strong { margin-bottom: 0; }
     .security-banner strong { font-size: 16px; display: block; margin-bottom: 6px; color: #15803d; letter-spacing: -0.2px; }
@@ -61,8 +82,9 @@
     /* 상단 20% : 하단 80% 영역 분할 (PDF 병합기와 동일 구조) */
     .top-section { flex: 0 0 20%; min-height: 150px; display: flex; align-items: stretch; gap: 14px; margin-bottom: 20px; }
     .top-col-title { flex: 0 0 22%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; text-align: center; background: linear-gradient(160deg, #fff7ed 0%, #ffedd5 100%); border: 1px solid #fed7aa; border-radius: 12px; padding: 14px 10px; box-shadow: 0 1px 3px rgba(194,65,12,0.06); }
+    .top-col-title:hover { border-color: #fdba74; box-shadow: 0 6px 16px rgba(194,65,12,0.12); transform: translateY(-1px); }
     .title-icon { font-size: 2rem; line-height: 1; filter: drop-shadow(0 1px 1px rgba(194,65,12,0.15)); }
-    .title-main { margin: 0; color: #9a3412; font-size: 1.25rem; font-weight: 800; line-height: 1.3; letter-spacing: -0.3px; display: block; }
+    .title-main { margin: 0; color: #9a3412; font-size: 1.8rem; font-weight: 400; font-family: 'Jua', 'Pretendard Variable', sans-serif; line-height: 1.25; letter-spacing: -0.1px; display: block; }
     .btn-reset { padding: 5px 14px; background: white; border: 1.5px solid #ef4444; color: #ef4444; border-radius: 20px; font-size: 0.78rem; font-weight: 700; cursor: pointer; white-space: nowrap; flex-shrink: 0; transition: background 0.15s, color 0.15s; }
     .btn-reset:hover { background: #ef4444; color: white; }
     .btn-reset:disabled { border-color: #cbd5e1; color: #94a3b8; cursor: not-allowed; background: white; }
@@ -74,6 +96,7 @@
     .drop-zone:hover, .drop-zone.highlight { background-color: #dbeafe; border-color: #1d4ed8; }
 
     .option-box { background: #f1f5f9; border: 1px solid #cbd5e1; padding: 14px 18px; border-radius: 8px; margin-bottom: 20px; display: flex; align-items: center; gap: 20px; flex-wrap: wrap; }
+    .option-box:hover { border-color: #94a3b8; box-shadow: 0 6px 16px rgba(15,23,42,0.08); transform: translateY(-1px); }
     .option-box label { font-size: 0.95rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 6px; }
 
     /* 하단 80% : 목록/미리보기 편집 영역 (개별 리사이즈 가능, PDF 병합기와 동일 방식) */
@@ -84,6 +107,7 @@
     .editor-resizer:hover::before, .editor-resizer.resizing::before { color: white; }
 
     .file-list-container { flex: 0 0 calc(50% - 7px); min-width: 340px; max-width: 80%; border: 1px solid #e2e8f0; border-radius: 10px; background: #fafafa; height: 100%; min-height: 300px; max-height: 90vh; overflow: auto; padding: 12px; resize: vertical; }
+    .file-list-container:hover { border-color: #93c5fd; box-shadow: 0 6px 16px rgba(37,99,235,0.1); }
     .file-name-cell { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .file-table-wrapper { overflow-x: auto; max-height: none; overflow-y: visible; border: 1px solid #e2e8f0; border-radius: 6px; }
     table { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 0.875rem; text-align: left; }
@@ -115,11 +139,13 @@
     .btn-del:hover { background: #dc2626; }
 
     .preview-panel { flex: 0 0 calc(50% - 7px); min-width: 320px; max-width: 85%; border: 1px solid #e2e8f0; border-radius: 10px; background: #fafafa; padding: 16px; display: flex; flex-direction: column; height: 100%; min-height: 300px; max-height: 90vh; overflow: auto; resize: both; }
+    .preview-panel:hover { border-color: #cbd5e1; box-shadow: 0 6px 16px rgba(15,23,42,0.08); }
     .preview-table-wrapper { flex: 1; overflow: auto; max-height: none; background: white; border: 1px solid #cbd5e1; margin-top: 10px; }
     .preview-table th, .preview-table td { border: 1px solid #cbd5e1; padding: 4px 6px; font-size: 0.75rem; white-space: nowrap; }
     .preview-table th { background: #f1f5f9; }
 
-    .merge-btn { width: 100%; padding: 16px; background: #10b981; color: white; border: none; border-radius: 10px; font-size: 1.1rem; font-weight: 700; cursor: pointer; margin-top: 20px; }
+    .merge-btn { width: 100%; padding: 16px; background: #10b981; color: white; border: none; border-radius: 10px; font-size: 1.1rem; font-weight: 700; cursor: pointer; margin-top: 20px; box-shadow: 0 2px 6px rgba(16,185,129,0.25); }
+    .merge-btn:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 6px 14px rgba(0,0,0,0.18); }
     .merge-btn:disabled { background: #cbd5e1; cursor: not-allowed; }
 
     @media (max-width: 1180px) {

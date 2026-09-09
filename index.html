@@ -100,13 +100,7 @@
     .option-box label { font-size: 0.95rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 6px; }
 
     /* 필수 입력 열 지정 UI */
-    .help-tip {
-      display: inline-flex; align-items: center; justify-content: center;
-      width: 17px; height: 17px; border-radius: 50%;
-      background: #94a3b8; color: #fff; font-size: 0.7rem; font-weight: 700;
-      cursor: help; flex-shrink: 0; user-select: none;
-    }
-    .help-tip:hover { background: #64748b; }
+    .rc-summary { font-size: 0.82rem; font-weight: 400; color: #64748b; }
     #required-col-list { display: none; flex-direction: column; gap: 10px; width: 100%; margin-top: 4px; padding-top: 12px; border-top: 1px dashed #cbd5e1; }
     #required-col-list.open { display: flex; }
     .required-col-row { display: flex; align-items: center; gap: 10px; font-size: 0.88rem; flex-wrap: wrap; }
@@ -228,7 +222,7 @@
     <label style="margin: 0;">
       <input type="checkbox" id="required-col-enable" onchange="onRequiredColToggle()">
       📌 필수 입력 열 지정
-      <span class="help-tip" title="지정한 열에 값이 비어 있는 행은 병합 결과에서 제외됩니다. 소계·합계처럼 특정 열이 비어 있는 요약 행을 걸러낼 때 사용하세요. 열은 엑셀 열 문자(A, B, C…)로 입력합니다. 시트가 여러 개면 시트별로 각각 지정할 수 있습니다.">?</span>
+      <span class="rc-summary">(지정한 열이 비어 있는 행은 소계·합계 등으로 간주해 병합에서 제외)</span>
     </label>
     <div id="required-col-list"></div>
   </div>

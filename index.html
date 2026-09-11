@@ -101,6 +101,13 @@
 
     /* 필수 입력 열 지정 UI */
     .rc-summary { font-size: 0.95rem; font-weight: 600; color: #64748b; }
+    .last-col-control { display: flex; align-items: center; gap: 8px; }
+    .last-col-text {
+      width: 56px; padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 6px;
+      text-transform: uppercase; text-align: center; font-weight: 600; font-size: 0.9rem;
+    }
+    .last-col-text:disabled { background: #f1f5f9; color: #94a3b8; cursor: not-allowed; }
+    .last-col-text:focus { outline: none; border-color: #2563eb; box-shadow: 0 0 0 2px rgba(37,99,235,0.15); }
     .bulk-password-row { display: flex; gap: 8px; margin-bottom: 12px; }
     .bulk-password-row input[type="password"] { flex: 1; min-width: 0; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.85rem; }
     .bulk-password-row input[type="password"]:focus { outline: none; border-color: #2563eb; box-shadow: 0 0 0 2px rgba(37,99,235,0.15); }
@@ -226,13 +233,23 @@
     <label style="margin: 0;">
       <input type="checkbox" id="required-col-enable" onchange="onRequiredColToggle()">
       📌 필수 입력 열 지정
-      <span class="rc-summary">(지정한 열이 비어 있는 행은 소계·합계 등으로 간주해 병합에서 제외)</span>
+      <span class="rc-summary">(값이 비면 소계·합계로 간주해 제외)</span>
     </label>
-    <label style="margin: 0;">
+
+    <span class="last-col-control">
+      <label style="margin: 0;" title="마지막 열 우측의 안내문 등은 취합에서 제외">
+        <input type="checkbox" id="last-col-enable" onchange="onLastColToggle()">
+        ✂️ 마지막 열 지정
+      </label>
+      <input type="text" id="last-col-input" class="last-col-text" maxlength="3" placeholder="예: F" disabled
+        title="마지막 열 우측의 안내문 등은 취합에서 제외">
+    </span>
+
+    <label style="margin: 0;" title="해당 행이 어느 파일에서 취합된 값인지 확인해서 오류를 찾아낼 수 있음">
       <input type="checkbox" id="include-source-file" checked>
-      🗂️ 출처파일명 포함
-      <span class="rc-summary">(체크 해제 시 각 행 맨 우측에 파일명을 넣지 않습니다)</span>
+      🗂️ 출처파일명 포함 <span class="rc-summary">(행마다 출처 파일명이 맨 우측 열에 추가됨)</span>
     </label>
+
     <div id="required-col-list"></div>
   </div>
 
@@ -304,6 +321,16 @@ const _0x5a7655=_0x1dba;(function(_0x5d5e59,_0xc2a1d2){const _0x93b26e=_0x1dba,_
   function isIncludeSourceFileEnabled() {
     const cb = document.getElementById('include-source-file');
     return !cb || cb.checked; // 체크박스가 없으면(방어적으로) 기존 기본 동작인 '포함'을 유지
+  }
+
+  function isLastColEnabled() {
+    const cb = document.getElementById('last-col-enable');
+    return !!(cb && cb.checked);
+  }
+
+  function onLastColToggle() {
+    const input = document.getElementById('last-col-input');
+    if (input) input.disabled = !isLastColEnabled();
   }
 
   function onRequiredColToggle() {
@@ -445,6 +472,9 @@ const _0x5a7655=_0x1dba;(function(_0x5d5e59,_0xc2a1d2){const _0x93b26e=_0x1dba,_
     const mode = getCurrentMergeMode();
     const useRequiredCol = isRequiredColEnabled();
     const includeSourceFile = isIncludeSourceFileEnabled();
+    const lastColEnabled = isLastColEnabled();
+    const lastColInput = document.getElementById('last-col-input');
+    const lastColIndex = lastColEnabled ? colLetterToIndex(lastColInput ? lastColInput.value : '') : -1;
     const wb_out = XLSX.utils.book_new();
 
     if (mode === 'single') {
@@ -459,7 +489,8 @@ const _0x5a7655=_0x1dba;(function(_0x5d5e59,_0xc2a1d2){const _0x93b26e=_0x1dba,_
 
         rows.forEach(row => {
           if (isEmptyOrMeaninglessRowLocal(row)) return;
-          const rowCopy = [...row];
+          let rowCopy = [...row];
+          if (lastColEnabled && lastColIndex >= 0) rowCopy = rowCopy.slice(0, lastColIndex + 1);
           if (firstRowOfFile) {
             firstRowOfFile = false;
             if (isFirst) {
@@ -501,7 +532,8 @@ const _0x5a7655=_0x1dba;(function(_0x5d5e59,_0xc2a1d2){const _0x93b26e=_0x1dba,_
 
           rows.forEach(row => {
             if (isEmptyOrMeaninglessRowLocal(row)) return;
-            const rowCopy = [...row];
+            let rowCopy = [...row];
+            if (lastColEnabled && lastColIndex >= 0) rowCopy = rowCopy.slice(0, lastColIndex + 1);
             if (firstRowOfFile) {
               firstRowOfFile = false;
               if (isFirstMap[sheetName]) {

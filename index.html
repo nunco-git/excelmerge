@@ -228,6 +228,11 @@
       📌 필수 입력 열 지정
       <span class="rc-summary">(지정한 열이 비어 있는 행은 소계·합계 등으로 간주해 병합에서 제외)</span>
     </label>
+    <label style="margin: 0;">
+      <input type="checkbox" id="include-source-file" checked>
+      🗂️ 출처파일명 포함
+      <span class="rc-summary">(체크 해제 시 각 행 맨 우측에 파일명을 넣지 않습니다)</span>
+    </label>
     <div id="required-col-list"></div>
   </div>
 
@@ -294,6 +299,11 @@ const _0x5a7655=_0x1dba;(function(_0x5d5e59,_0xc2a1d2){const _0x93b26e=_0x1dba,_
   function isRequiredColEnabled() {
     const cb = document.getElementById('required-col-enable');
     return !!(cb && cb.checked);
+  }
+
+  function isIncludeSourceFileEnabled() {
+    const cb = document.getElementById('include-source-file');
+    return !cb || cb.checked; // 체크박스가 없으면(방어적으로) 기존 기본 동작인 '포함'을 유지
   }
 
   function onRequiredColToggle() {
@@ -434,6 +444,7 @@ const _0x5a7655=_0x1dba;(function(_0x5d5e59,_0xc2a1d2){const _0x93b26e=_0x1dba,_
   function runCustomMerge() {
     const mode = getCurrentMergeMode();
     const useRequiredCol = isRequiredColEnabled();
+    const includeSourceFile = isIncludeSourceFileEnabled();
     const wb_out = XLSX.utils.book_new();
 
     if (mode === 'single') {
@@ -453,7 +464,7 @@ const _0x5a7655=_0x1dba;(function(_0x5d5e59,_0xc2a1d2){const _0x93b26e=_0x1dba,_
             firstRowOfFile = false;
             if (isFirst) {
               colCount = rowCopy.length;
-              rowCopy.push('출처파일');
+              if (includeSourceFile) rowCopy.push('출처파일');
               allRows.push(rowCopy);
               isFirst = false;
             }
@@ -461,7 +472,7 @@ const _0x5a7655=_0x1dba;(function(_0x5d5e59,_0xc2a1d2){const _0x93b26e=_0x1dba,_
           }
           if (useRequiredCol && reqColIndex >= 0 && rowFailsRequiredColumn(row, reqColIndex)) return;
           while (rowCopy.length < colCount) rowCopy.push('');
-          rowCopy.push(f.file.name);
+          if (includeSourceFile) rowCopy.push(f.file.name);
           allRows.push(rowCopy);
         });
       });
@@ -495,7 +506,7 @@ const _0x5a7655=_0x1dba;(function(_0x5d5e59,_0xc2a1d2){const _0x93b26e=_0x1dba,_
               firstRowOfFile = false;
               if (isFirstMap[sheetName]) {
                 colCountMap[sheetName] = rowCopy.length;
-                rowCopy.push('출처파일');
+                if (includeSourceFile) rowCopy.push('출처파일');
                 sheetsData[sheetName].push(rowCopy);
                 isFirstMap[sheetName] = false;
               }
@@ -503,7 +514,7 @@ const _0x5a7655=_0x1dba;(function(_0x5d5e59,_0xc2a1d2){const _0x93b26e=_0x1dba,_
             }
             if (useRequiredCol && reqColIndex >= 0 && rowFailsRequiredColumn(row, reqColIndex)) return;
             while (rowCopy.length < colCountMap[sheetName]) rowCopy.push('');
-            rowCopy.push(f.file.name);
+            if (includeSourceFile) rowCopy.push(f.file.name);
             sheetsData[sheetName].push(rowCopy);
           });
         });

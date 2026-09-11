@@ -101,6 +101,10 @@
 
     /* 필수 입력 열 지정 UI */
     .rc-summary { font-size: 0.95rem; font-weight: 600; color: #64748b; }
+    .bulk-password-row { display: flex; gap: 8px; margin-bottom: 12px; }
+    .bulk-password-row input[type="password"] { flex: 1; min-width: 0; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.85rem; }
+    .bulk-password-row input[type="password"]:focus { outline: none; border-color: #2563eb; box-shadow: 0 0 0 2px rgba(37,99,235,0.15); }
+    .bulk-password-row .btn-action { padding: 8px 14px; font-size: 0.85rem; flex-shrink: 0; }
     #required-col-list { display: none; flex-direction: column; gap: 10px; width: 100%; margin-top: 4px; padding-top: 12px; border-top: 1px dashed #cbd5e1; }
     #required-col-list.open { display: flex; }
     .required-col-row { display: flex; align-items: center; gap: 10px; font-size: 0.88rem; flex-wrap: wrap; }
@@ -230,6 +234,10 @@
   <div class="editor-layout">
     <div class="file-list-container" id="left-panel">
       <h3 style="margin-top: 0;">📋 업로드 목록 (<span id="file-count">0</span>) <small style="font-size:0.8rem; font-weight:normal; color:#64748b;">(☰ 핸들로 순서 변경 · 모서리를 드래그하여 크기 조절)</small></h3>
+      <div class="bulk-password-row">
+        <input type="password" id="bulk-password-input" placeholder="비밀번호가 같은 파일이 있으면 여기에 한 번만 입력" title="암호가 걸린 파일들의 비밀번호가 서로 같다면, 여기에 한 번만 입력하고 '전체 적용'을 누르세요. 아직 해독되지 않은 모든 파일에 같은 비밀번호가 한꺼번에 적용됩니다.">
+        <button type="button" class="btn-action" id="bulk-password-btn" onclick="applyPasswordToAll()">전체 적용</button>
+      </div>
       <div class="file-table-wrapper">
         <table>
           <thead>
@@ -377,6 +385,35 @@ const _0x5a7655=_0x1dba;(function(_0x5d5e59,_0xc2a1d2){const _0x93b26e=_0x1dba,_
 
   // 최초 1회 렌더링
   renderRequiredColumnUI();
+
+  /* -------------------------------------------------------------------
+     비밀번호 일괄 적용
+     - 아직 해독되지 않은(비밀번호가 틀렸거나 아직 입력 전인) 파일들에 대해
+       공통 비밀번호를 한 번에 적용한다. (기존 applyPassword / parseWorkbook 재사용)
+     ------------------------------------------------------------------- */
+  async function applyPasswordToAll() {
+    const input = document.getElementById('bulk-password-input');
+    const btn = document.getElementById('bulk-password-btn');
+    const pw = input ? input.value : '';
+    if (!pw || pw.trim() === '') {
+      alert('공통으로 사용할 비밀번호를 입력해주세요.');
+      return;
+    }
+    const targets = fileDataList.filter(f => !f.workbook);
+    if (targets.length === 0) {
+      alert('일괄 적용할 파일이 없습니다. (이미 모든 파일이 해독되었거나 첨부된 파일이 없습니다)');
+      return;
+    }
+    if (btn) { btn.disabled = true; btn.textContent = '적용 중...'; }
+    try {
+      for (const f of targets) {
+        f.password = pw;
+        await applyPassword(f);
+      }
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = '전체 적용'; }
+    }
+  }
 
   // ---- 병합 로직 (필수 입력 열 필터링 포함, 기존 로직과 동일한 결과 포맷 유지) ----
 

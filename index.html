@@ -99,28 +99,24 @@
     .option-box:hover { border-color: #94a3b8; box-shadow: 0 6px 16px rgba(15,23,42,0.08); transform: translateY(-1px); }
     .option-box label { font-size: 0.95rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 6px; }
 
-    /* 필수 입력 열 지정 UI */
+    /* 필수 입력 열 / 마지막 열 지정 UI */
     .rc-summary { font-size: 0.95rem; font-weight: 600; color: #64748b; }
-    .last-col-control { display: flex; align-items: center; gap: 8px; }
-    .last-col-text {
-      width: 56px; padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 6px;
-      text-transform: uppercase; text-align: center; font-weight: 600; font-size: 0.9rem;
-    }
-    .last-col-text:disabled { background: #f1f5f9; color: #94a3b8; cursor: not-allowed; }
-    .last-col-text:focus { outline: none; border-color: #2563eb; box-shadow: 0 0 0 2px rgba(37,99,235,0.15); }
     .bulk-password-row { display: flex; gap: 8px; margin-bottom: 12px; }
     .bulk-password-row input[type="password"] { flex: 1; min-width: 0; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.85rem; }
     .bulk-password-row input[type="password"]:focus { outline: none; border-color: #2563eb; box-shadow: 0 0 0 2px rgba(37,99,235,0.15); }
     .bulk-password-row .btn-action { padding: 8px 14px; font-size: 0.85rem; flex-shrink: 0; }
-    #required-col-list { display: none; flex-direction: column; gap: 10px; width: 100%; margin-top: 4px; padding-top: 12px; border-top: 1px dashed #cbd5e1; }
-    #required-col-list.open { display: flex; }
-    .required-col-row { display: flex; align-items: center; gap: 10px; font-size: 0.88rem; flex-wrap: wrap; }
+    #sheet-settings-list { display: none; flex-direction: column; gap: 10px; width: 100%; margin-top: 4px; padding-top: 12px; border-top: 1px dashed #cbd5e1; }
+    #sheet-settings-list.open { display: flex; }
+    .required-col-row { display: flex; align-items: center; gap: 16px; font-size: 0.88rem; flex-wrap: wrap; }
     .required-col-row .rc-label { min-width: 170px; color: #334155; font-weight: 500; }
-    .required-col-row input[type="text"] {
-      width: 64px; padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 6px;
+    .sheet-setting-field { display: flex; align-items: center; gap: 6px; }
+    .sheet-setting-tag { font-size: 0.78rem; color: #64748b; }
+    .sheet-setting-field input[type="text"] {
+      width: 56px; padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 6px;
       text-transform: uppercase; text-align: center; font-weight: 600;
     }
-    .required-col-row input[type="text"]:focus { outline: none; border-color: #2563eb; box-shadow: 0 0 0 2px rgba(37,99,235,0.15); }
+    .sheet-setting-field input[type="text"]:focus { outline: none; border-color: #2563eb; box-shadow: 0 0 0 2px rgba(37,99,235,0.15); }
+    .sheet-setting-field input[type="text"]:disabled { background: #f1f5f9; color: #94a3b8; cursor: not-allowed; }
     .required-col-empty { color: #94a3b8; font-size: 0.85rem; }
 
     /* 하단 80% : 목록/미리보기 편집 영역 (개별 리사이즈 가능, PDF 병합기와 동일 방식) */
@@ -236,21 +232,17 @@
       <span class="rc-summary">(값이 비면 소계·합계로 간주해 제외)</span>
     </label>
 
-    <span class="last-col-control">
-      <label style="margin: 0;" title="마지막 열 우측의 안내문 등은 취합에서 제외">
-        <input type="checkbox" id="last-col-enable" onchange="onLastColToggle()">
-        ✂️ 마지막 열 지정
-      </label>
-      <input type="text" id="last-col-input" class="last-col-text" maxlength="3" placeholder="예: F" disabled
-        title="마지막 열 우측의 안내문 등은 취합에서 제외">
-    </span>
+    <label style="margin: 0;" title="마지막 열 우측의 안내문 등은 취합에서 제외">
+      <input type="checkbox" id="last-col-enable" onchange="onLastColToggle()">
+      ✂️ 마지막 열 지정
+    </label>
 
     <label style="margin: 0;" title="해당 행이 어느 파일에서 취합된 값인지 확인해서 오류를 찾아낼 수 있음">
       <input type="checkbox" id="include-source-file" checked>
       🗂️ 출처파일명 포함 <span class="rc-summary">(행마다 출처 파일명이 맨 우측 열에 추가됨)</span>
     </label>
 
-    <div id="required-col-list"></div>
+    <div id="sheet-settings-list"></div>
   </div>
 
   <div class="editor-layout">
@@ -298,15 +290,17 @@ const _0x5a7655=_0x1dba;(function(_0x5d5e59,_0xc2a1d2){const _0x93b26e=_0x1dba,_
 
 <script>
   /* =========================================================================
-     필수 입력 열 지정 기능
-     - 지정한 열에 값이 없는 행은 병합 결과에서 제외한다. (소계/합계 등 요약 행 걸러내기용)
-     - "시트명이 같은 것끼리 합치기" 모드에서는 시트별로 각각 필수 열을 지정할 수 있다.
+     필수 입력 열 / 마지막 열 지정 기능
+     - 필수 입력 열: 지정한 열에 값이 없는 행은 병합 결과에서 제외한다. (소계/합계 등 요약 행 걸러내기용)
+     - 마지막 열: 지정한 열까지만 병합하고, 그 오른쪽(작성 안내문 등)은 제외한다.
+     - "시트명이 같은 것끼리 합치기" 모드에서는 두 설정 모두 시트별로 각각 지정할 수 있다.
      - 병합 버튼 클릭을 캡처 단계에서 가로채 자체적으로 병합을 수행하며, 기존 병합 로직은
        실행되지 않도록 이벤트 전파를 막는다. (버튼 활성/비활성 로직 등 기존 동작은 그대로 유지)
      ========================================================================= */
 
-  // 시트별 필수 열 설정값 저장소. key: 'single' 모드에서는 '__single__', 'multi' 모드에서는 시트 이름
+  // 시트별 설정값 저장소. key: 'single' 모드에서는 '__single__', 'multi' 모드에서는 시트 이름
   let requiredColumnSettings = {};
+  let lastColumnSettings = {};
 
   function getCurrentMergeMode() {
     const el = document.querySelector('input[name="merge-mode"]:checked');
@@ -329,14 +323,11 @@ const _0x5a7655=_0x1dba;(function(_0x5d5e59,_0xc2a1d2){const _0x93b26e=_0x1dba,_
   }
 
   function onLastColToggle() {
-    const input = document.getElementById('last-col-input');
-    if (input) input.disabled = !isLastColEnabled();
+    renderSheetSettingsUI();
   }
 
   function onRequiredColToggle() {
-    const box = document.getElementById('required-col-list');
-    if (!box) return;
-    box.classList.toggle('open', isRequiredColEnabled());
+    renderSheetSettingsUI();
   }
 
   // 엑셀 열 문자(A, B, ..., Z, AA, AB ...)를 0부터 시작하는 배열 인덱스로 변환
@@ -370,15 +361,44 @@ const _0x5a7655=_0x1dba;(function(_0x5d5e59,_0xc2a1d2){const _0x93b26e=_0x1dba,_
     return seen.map((name, i) => ({ key: name, label: `${i + 1}번째 시트 (${name})` }));
   }
 
-  // 필수 입력 열 지정 UI를 파일/모드 상태에 맞게 다시 그린다.
-  function renderRequiredColumnUI() {
-    const list = document.getElementById('required-col-list');
+  function buildSheetSettingField(tagText, placeholder, titleText, storeObj, key, enabled) {
+    const wrap = document.createElement('span');
+    wrap.className = 'sheet-setting-field';
+
+    const tag = document.createElement('span');
+    tag.className = 'sheet-setting-tag';
+    tag.textContent = tagText;
+    wrap.appendChild(tag);
+
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.maxLength = 3;
+    input.placeholder = placeholder;
+    input.title = titleText;
+    input.disabled = !enabled;
+    input.value = storeObj[key] || '';
+    input.addEventListener('input', () => {
+      storeObj[key] = input.value.trim().toUpperCase();
+    });
+    wrap.appendChild(input);
+
+    return wrap;
+  }
+
+  // 필수 입력 열 / 마지막 열 지정 UI를 파일·모드·체크박스 상태에 맞게 다시 그린다.
+  function renderSheetSettingsUI() {
+    const list = document.getElementById('sheet-settings-list');
     if (!list) return;
+
+    const reqEnabled = isRequiredColEnabled();
+    const lastEnabled = isLastColEnabled();
+    list.classList.toggle('open', reqEnabled || lastEnabled);
+
     const items = collectSheetKeysInOrder();
     list.innerHTML = '';
 
     if (fileDataList.length === 0) {
-      list.innerHTML = '<div class="required-col-empty">파일을 먼저 첨부하면 시트별로 필수 입력 열을 지정할 수 있습니다.</div>';
+      list.innerHTML = '<div class="required-col-empty">파일을 먼저 첨부하면 시트별로 필수 입력 열 / 마지막 열을 지정할 수 있습니다.</div>';
       return;
     }
 
@@ -391,37 +411,62 @@ const _0x5a7655=_0x1dba;(function(_0x5d5e59,_0xc2a1d2){const _0x93b26e=_0x1dba,_
       label.textContent = item.label;
       row.appendChild(label);
 
-      const input = document.createElement('input');
-      input.type = 'text';
-      input.maxLength = 3;
-      input.placeholder = '예: A';
-      input.title = `이 시트에서 값이 비어 있으면 행을 제외할 열을 엑셀 열 문자로 입력하세요. (예: A, B, C)`;
-      input.value = requiredColumnSettings[item.key] || '';
-      input.addEventListener('input', () => {
-        requiredColumnSettings[item.key] = input.value.trim().toUpperCase();
-      });
-      row.appendChild(input);
+      row.appendChild(buildSheetSettingField(
+        '필수열', '예: A',
+        '이 시트에서 값이 비어 있으면 행을 제외할 열을 엑셀 열 문자로 입력하세요. (예: A, B, C)',
+        requiredColumnSettings, item.key, reqEnabled
+      ));
+
+      row.appendChild(buildSheetSettingField(
+        '마지막열', '예: F',
+        '마지막 열 우측의 안내문 등은 취합에서 제외',
+        lastColumnSettings, item.key, lastEnabled
+      ));
 
       list.appendChild(row);
     });
   }
 
+  /* -------------------------------------------------------------------
+     암호가 없는 파일은 업로드 목록에서 비밀번호 입력창을 숨긴다.
+     - 파일 목록 각 행은 [번호/삭제, 핸들, 파일명, 비밀번호, 시트선택] 순서의 5개 <td>로 구성되며,
+       비밀번호 입력창은 항상 4번째(index 3) 셀에 렌더링된다.
+     - '암호가 없는 파일'의 판단 기준: 이미 해독(workbook 생성)되었고, 비밀번호를 입력한 적이 없는 경우.
+       (비밀번호를 입력해서 정상적으로 열린 파일은 실제로 암호가 걸려 있으므로 계속 표시한다.)
+     ------------------------------------------------------------------- */
+  function isFileNotPasswordProtected(f) {
+    return !!(f.workbook && (!f.password || f.password.trim() === ''));
+  }
+
+  function refreshPasswordCellVisibility() {
+    if (!fileListBody) return;
+    const rows = fileListBody.querySelectorAll('tr');
+    rows.forEach((tr, idx) => {
+      const f = fileDataList[idx];
+      if (!f) return;
+      const passwordTd = tr.children[3];
+      if (!passwordTd) return;
+      passwordTd.style.display = isFileNotPasswordProtected(f) ? 'none' : '';
+    });
+  }
+
   // 기존 updateUI / toggleModeUI 는 전역 함수 선언(var 성격)이라 재정의(override)가 가능하다.
-  // 원래 동작을 그대로 수행한 뒤, 필수 입력 열 UI만 추가로 갱신한다.
+  // 원래 동작을 그대로 수행한 뒤, 필수 입력 열 UI 갱신 및 비밀번호 셀 표시 여부를 추가로 처리한다.
   const _originalUpdateUI = updateUI;
   updateUI = function () {
     _originalUpdateUI();
-    renderRequiredColumnUI();
+    renderSheetSettingsUI();
+    refreshPasswordCellVisibility();
   };
 
   const _originalToggleModeUI = toggleModeUI;
   toggleModeUI = function () {
     _originalToggleModeUI();
-    renderRequiredColumnUI();
+    renderSheetSettingsUI();
   };
 
   // 최초 1회 렌더링
-  renderRequiredColumnUI();
+  renderSheetSettingsUI();
 
   /* -------------------------------------------------------------------
      비밀번호 일괄 적용
@@ -473,12 +518,11 @@ const _0x5a7655=_0x1dba;(function(_0x5d5e59,_0xc2a1d2){const _0x93b26e=_0x1dba,_
     const useRequiredCol = isRequiredColEnabled();
     const includeSourceFile = isIncludeSourceFileEnabled();
     const lastColEnabled = isLastColEnabled();
-    const lastColInput = document.getElementById('last-col-input');
-    const lastColIndex = lastColEnabled ? colLetterToIndex(lastColInput ? lastColInput.value : '') : -1;
     const wb_out = XLSX.utils.book_new();
 
     if (mode === 'single') {
       const reqColIndex = useRequiredCol ? colLetterToIndex(requiredColumnSettings['__single__']) : -1;
+      const lastColIndex = lastColEnabled ? colLetterToIndex(lastColumnSettings['__single__']) : -1;
       let allRows = [], isFirst = true, colCount = 0;
 
       fileDataList.forEach(f => {
@@ -528,6 +572,7 @@ const _0x5a7655=_0x1dba;(function(_0x5d5e59,_0xc2a1d2){const _0x93b26e=_0x1dba,_
           const sheet = f.workbook.Sheets[sheetName];
           const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
           const reqColIndex = useRequiredCol ? colLetterToIndex(requiredColumnSettings[sheetName]) : -1;
+          const lastColIndex = lastColEnabled ? colLetterToIndex(lastColumnSettings[sheetName]) : -1;
           let firstRowOfFile = true;
 
           rows.forEach(row => {

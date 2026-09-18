@@ -562,9 +562,31 @@
   }
 
   // excludedRows: [{ row: 원본 엑셀 행 번호, reason: '빈 행' | '필수 입력 열 값 없음' }]
+  // 같은 사유가 행 번호상 연속되면 하나의 구간으로 묶는다. 예: 1행,2행(같은 사유) -> "사유 1~2행"
+  function groupExcludedRows(excludedRows) {
+    if (!excludedRows || excludedRows.length === 0) return [];
+    const sorted = [...excludedRows].sort((a, b) => a.row - b.row);
+    const groups = [];
+    let current = null;
+    sorted.forEach(e => {
+      if (current && current.reason === e.reason && e.row === current.endRow + 1) {
+        current.endRow = e.row;
+      } else {
+        if (current) groups.push(current);
+        current = { reason: e.reason, startRow: e.row, endRow: e.row };
+      }
+    });
+    if (current) groups.push(current);
+    return groups;
+  }
+
   function formatExcludedRows(excludedRows) {
-    if (!excludedRows || excludedRows.length === 0) return '';
-    return excludedRows.map(e => `${e.row}행(${e.reason})`).join(', ');
+    const groups = groupExcludedRows(excludedRows);
+    if (groups.length === 0) return '';
+    return groups.map(g => {
+      const rangeText = g.startRow === g.endRow ? `${g.startRow}행` : `${g.startRow}~${g.endRow}행`;
+      return `${g.reason} ${rangeText}`;
+    }).join(', ');
   }
 
   function buildMergeReportSheet(reportRows) {

@@ -17,6 +17,10 @@
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"
           integrity="sha384-vtjasyidUo0kW94K5MXDXntzOJpQgBKXmE7e2Ga4LG0skTTLeBi97eFAXsqewJjw"
           crossorigin="anonymous"></script>
+  <!-- 서식(글꼴·색·테두리·열 너비·셀 병합 등)을 그대로 복사해 저장하기 위한 라이브러리 -->
+  <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"
+          integrity="sha384-Pqp51FUN2/qzfxZxBCtF0stpc9ONI6MYZpVqmo8m20SoaQCzf+arZvACkLkirlPz"
+          crossorigin="anonymous"></script>
   <!-- 실제 파일 암호화(MS-OFFCRYPTO Agile Encryption) 해독을 위한 저수준 암호화 라이브러리 -->
   <script src="https://cdn.jsdelivr.net/npm/node-forge@1.3.1/dist/forge.min.js"
           integrity="sha384-xE6n3RBMZWgwAhyzoIMfY7HN3oDBa/+HBwFFNyxsdY8kseup7C4Blx1yDzprEESV"
@@ -244,6 +248,11 @@
     <label style="margin: 0;" title="해당 행이 어느 파일에서 취합된 값인지 확인해서 오류를 찾아낼 수 있음">
       <input type="checkbox" id="include-source-file" checked>
       🗂️ 출처파일명 포함 <span class="rc-summary">(행마다 출처 파일명이 맨 우측 열에 추가됨)</span>
+    </label>
+
+    <label style="margin: 0;" title="원본 파일의 글꼴·색상·테두리·표시형식·열 너비·행 높이·셀 병합을 결과 파일에 그대로 복사 (.xlsx 파일만 해당)">
+      <input type="checkbox" id="include-style" checked>
+      🎨 원본 서식 유지 <span class="rc-summary">(.xlsx 파일의 글꼴·색·테두리·열 너비 등을 그대로 복사)</span>
     </label>
 
     <div id="sheet-settings-list"></div>
@@ -628,7 +637,7 @@
     }).join(', ');
   }
 
-  function buildMergeReportSheet(reportRows) {
+  function buildMergeReportAoa(reportRows) {
     const header = ['파일명', '사용 시트', '상태', '원본 헤더행', '원본 데이터 범위', '취합된 행 수', '취합 안 된 원본 행', '병합 셀로 빈 값이 생긴 행', '비고'];
     const aoa = [header];
     reportRows.forEach(r => {
@@ -644,22 +653,253 @@
         r.reason || ''
       ]);
     });
-    return XLSX.utils.aoa_to_sheet(aoa);
+    return aoa;
   }
 
-  function runCustomMerge() {
+  /* =========================================================================
+     서식 유지 기능 (ExcelJS)
+     - 값 필터링(빈 행·필수열·마지막 열 등)은 기존처럼 SheetJS로 처리하고,
+       각 결과 행이 '원본 파일의 몇 번째 행'에서 왔는지(meta)를 함께 기록한다.
+     - 저장 단계에서 ExcelJS로 원본 파일을 다시 읽어, 해당 행의 셀 서식(글꼴·채우기·테두리·
+       정렬·표시형식), 행 높이, 열 너비, 셀 병합을 결과 파일에 그대로 복사한다.
+     - 서식을 못 읽는 파일(.xls/.csv/미지원 암호화 등)은 값만 병합하고, 나머지 파일의 서식은 유지한다.
+     ========================================================================= */
+
+  function isKeepStyleEnabled() {
+    const cb = document.getElementById('include-style');
+    return !!(cb && cb.checked);
+  }
+
+  function isExcelJsReady() {
+    return typeof ExcelJS !== 'undefined' && ExcelJS && ExcelJS.Workbook;
+  }
+
+  // 원본 파일을 ExcelJS로 읽어 캐시한다. 읽을 수 없으면 null (그 파일은 서식 없이 값만 병합)
+  async function loadExcelJsFor(f) {
+    if (f._exWb !== undefined) return f._exWb;
+    f._exWb = null;
+    if (!/\.(xlsx|xlsm)$/i.test(f.file.name)) return null;
+    try {
+      let bytes = f._plainBytes;
+      if (!bytes) bytes = new Uint8Array(await f.file.arrayBuffer());
+      const wb = new ExcelJS.Workbook();
+      await wb.xlsx.load(bytes);
+      // 다른 파일의 바이트가 잘못 연결되는 사고 방지: 시트 이름이 SheetJS가 읽은 것과 같은지 확인
+      const names = wb.worksheets.map(w => w.name);
+      if (!f.workbook.SheetNames.every(n => names.includes(n))) return null;
+      f._exWb = wb;
+    } catch (err) {
+      console.warn('서식을 읽지 못한 파일(값만 병합):', f.file.name, err);
+    }
+    return f._exWb;
+  }
+
+  function cloneStyle(style) {
+    return style ? JSON.parse(JSON.stringify(style)) : {};
+  }
+
+  function parseRangeStr(str) {
+    const m = /^([A-Z]+)(\d+):([A-Z]+)(\d+)$/.exec(str);
+    if (!m) return null;
+    return { left: colLetterToIndex(m[1]) + 1, top: parseInt(m[2], 10), right: colLetterToIndex(m[3]) + 1, bottom: parseInt(m[4], 10) };
+  }
+
+  async function buildStyledWorkbook(outSheets, reportAoa) {
+    const wb = new ExcelJS.Workbook();
+
+    // 필요한 원본 파일을 미리 한 번씩만 읽어 둔다
+    const files = new Set();
+    outSheets.forEach(sh => sh.meta.forEach(m => files.add(m.f)));
+    for (const f of files) await loadExcelJsFor(f);
+
+    for (const sh of outSheets) {
+      const ws = wb.addWorksheet(sh.name);
+
+      // 1) 값
+      sh.rows.forEach((r, i) => {
+        const row = ws.getRow(i + 1);
+        r.forEach((v, j) => { row.getCell(j + 1).value = (v === '' || v === undefined) ? null : v; });
+      });
+
+      // 2) 서식 (셀 / 행 높이) + 원본 행 → 결과 행 대응표
+      const rowMaps = {}; // key(파일+시트) -> { srcRow: outRow }
+      sh.meta.forEach((m, i) => {
+        const outRow = i + 1;
+        const key = m.f.id + '|' + m.sheetName;
+        (rowMaps[key] = rowMaps[key] || { f: m.f, sheetName: m.sheetName, srcCol0: m.srcCol0, dataCols: 0, map: {} });
+        rowMaps[key].map[m.srcRow] = outRow;
+        rowMaps[key].dataCols = Math.max(rowMaps[key].dataCols, m.dataCols);
+
+        const exWb = m.f._exWb;
+        const src = exWb ? exWb.getWorksheet(m.sheetName) : null;
+        if (!src) return;
+        const srcRow = src.getRow(m.srcRow);
+        const dstRow = ws.getRow(outRow);
+        if (srcRow.height) dstRow.height = srcRow.height;
+        for (let j = 0; j < m.dataCols; j++) {
+          const srcCell = srcRow.getCell(m.srcCol0 + j + 1);
+          if (srcCell && srcCell.style) dstRow.getCell(j + 1).style = cloneStyle(srcCell.style);
+        }
+        // 맨 오른쪽에 붙는 '출처파일' 열: 머리글 행은 바로 왼쪽 머리글과 같은 서식으로
+        if (m.isHeader && m.withSource && m.dataCols > 0) {
+          dstRow.getCell(m.dataCols + 1).style = cloneStyle(dstRow.getCell(m.dataCols).style);
+        }
+      });
+
+      // 3) 열 너비 (머리글을 제공한 첫 파일 기준)
+      const first = sh.meta[0];
+      if (first && first.f._exWb) {
+        const src = first.f._exWb.getWorksheet(first.sheetName);
+        if (src) {
+          for (let j = 0; j < first.dataCols; j++) {
+            const col = src.getColumn(first.srcCol0 + j + 1);
+            if (col && col.width) ws.getColumn(j + 1).width = col.width;
+          }
+        }
+      }
+      if (first && first.withSource) {
+        const c = ws.getColumn(first.dataCols + 1);
+        if (!c.width) c.width = 28;
+      }
+
+      // 4) 셀 병합 (결과에 그대로 옮겨진 행에 걸친 병합만)
+      Object.values(rowMaps).forEach(info => {
+        const exWb = info.f._exWb;
+        const src = exWb ? exWb.getWorksheet(info.sheetName) : null;
+        if (!src || !src.model || !src.model.merges) return;
+        src.model.merges.forEach(str => {
+          const rg = parseRangeStr(str);
+          if (!rg) return;
+          const left = rg.left - info.srcCol0;
+          let right = rg.right - info.srcCol0;
+          if (left < 1 || left > info.dataCols) return;
+          if (right > info.dataCols) right = info.dataCols;
+          const outTop = info.map[rg.top];
+          if (!outTop) return;
+          for (let r = rg.top; r <= rg.bottom; r++) {
+            if (info.map[r] !== outTop + (r - rg.top)) return; // 중간에 제외된 행이 있으면 병합하지 않음
+          }
+          const outBottom = outTop + (rg.bottom - rg.top);
+          if (outBottom === outTop && right === left) return;
+          try { ws.mergeCells(outTop, left, outBottom, right); } catch (e) { /* 겹치는 병합은 무시 */ }
+        });
+      });
+    }
+
+    // 리포트 시트
+    let reportName = '취합_결과_리포트';
+    while (wb.getWorksheet(reportName)) reportName += '_';
+    const rws = wb.addWorksheet(reportName);
+    reportAoa.forEach((r, i) => {
+      const row = rws.getRow(i + 1);
+      r.forEach((v, j) => { row.getCell(j + 1).value = (v === '' || v === undefined) ? null : v; });
+    });
+    rws.getRow(1).font = { bold: true };
+    [28, 16, 8, 12, 18, 12, 40, 40, 40].forEach((w, i) => { rws.getColumn(i + 1).width = w; });
+
+    return wb;
+  }
+
+  async function downloadExcelJsWorkbook(wb, fileName) {
+    const buf = await wb.xlsx.writeBuffer();
+    const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+  }
+
+  // 한 파일의 한 시트에서 행을 읽어 block(rows/meta)에 쌓는다. (기존 필터링 규칙 그대로)
+  function collectSheetRows(f, sheetName, block, opts, reportRows) {
+    const sheet = f.workbook.Sheets[sheetName];
+    const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+    const merges = sheet['!merges'] || [];
+    const range = sheet['!ref'] ? XLSX.utils.decode_range(sheet['!ref']) : { s: { r: 0, c: 0 } };
+    const rangeStartRow = range.s.r;
+    const rangeStartCol = range.s.c;
+    let firstRowOfFile = true;
+    let rowsAddedForFile = 0;
+    let headerRow = null;
+    const excludedRows = [];
+    const mergedCellRows = [];
+
+    rows.forEach((row, idx) => {
+      const originalRow = idx + 1;
+      if (isEmptyOrMeaninglessRowLocal(row)) {
+        if (!firstRowOfFile) excludedRows.push({ row: originalRow, reason: '빈 행 또는 무의미한 행' });
+        return;
+      }
+      let rowCopy = [...row];
+      if (opts.lastColEnabled && opts.lastColIndex >= 0) rowCopy = rowCopy.slice(0, opts.lastColIndex + 1);
+      const srcRow = rangeStartRow + idx + 1; // 원본 엑셀의 실제 행 번호(1부터)
+
+      if (firstRowOfFile) {
+        firstRowOfFile = false;
+        headerRow = originalRow;
+        if (block.isFirst) {
+          block.colCount = rowCopy.length;
+          const dataCols = rowCopy.length;
+          if (opts.includeSourceFile) rowCopy.push('출처파일');
+          block.rows.push(rowCopy);
+          block.meta.push({ f, sheetName, srcRow, srcCol0: rangeStartCol, dataCols, isHeader: true, withSource: opts.includeSourceFile });
+          block.isFirst = false;
+        }
+        return;
+      }
+      if (opts.useRequiredCol && opts.reqColIndex >= 0 && rowFailsRequiredColumn(row, opts.reqColIndex)) {
+        excludedRows.push({ row: originalRow, reason: '필수 입력 열 값 없음' });
+        return;
+      }
+      while (rowCopy.length < block.colCount) rowCopy.push('');
+      const dataCols = rowCopy.length;
+      if (opts.includeSourceFile) rowCopy.push(f.file.name);
+      block.rows.push(rowCopy);
+      block.meta.push({ f, sheetName, srcRow, srcCol0: rangeStartCol, dataCols, isHeader: false, withSource: opts.includeSourceFile });
+      rowsAddedForFile++;
+
+      if (merges.length > 0) {
+        const mergedCols = getMergedAwayColumns(merges, rangeStartRow + idx);
+        if (mergedCols.length > 0) {
+          const colLetters = [...new Set(mergedCols)].sort((a, b) => a - b).map(indexToColLetter).join(',');
+          mergedCellRows.push({ row: originalRow, reason: colLetters });
+        }
+      }
+    });
+
+    const dataRangeText = headerRow ? `${headerRow + 1}~${rows.length}행` : `1~${rows.length}행`;
+    if (rowsAddedForFile > 0) {
+      reportRows.push({
+        fileName: f.file.name, sourceSheet: sheetName, status: '성공',
+        headerRow, dataRangeText, rowCount: rowsAddedForFile, excludedRows, mergedCellRows
+      });
+    } else {
+      reportRows.push({
+        fileName: f.file.name, sourceSheet: sheetName, status: '실패',
+        headerRow, dataRangeText, rowCount: 0, excludedRows, mergedCellRows,
+        reason: '취합 가능한 데이터가 없습니다 (빈 행이거나 필수 입력 열 조건 미충족)'
+      });
+    }
+  }
+
+  async function runCustomMerge() {
     const mode = getCurrentMergeMode();
     const useRequiredCol = isRequiredColEnabled();
     const includeSourceFile = isIncludeSourceFileEnabled();
     const lastColEnabled = isLastColEnabled();
-    const wb_out = XLSX.utils.book_new();
+    const outSheets = []; // { name, rows, meta }
+    const reportRows = [];
 
     if (mode === 'single') {
-      const reqColIndex = useRequiredCol ? colLetterToIndex(requiredColumnSettings['__single__']) : -1;
-      const lastColIndex = lastColEnabled ? colLetterToIndex(lastColumnSettings['__single__']) : -1;
-      let allRows = [], isFirst = true, colCount = 0;
-      const reportRows = [];
-
+      const block = { rows: [], meta: [], isFirst: true, colCount: 0 };
+      const opts = {
+        useRequiredCol, includeSourceFile, lastColEnabled,
+        reqColIndex: useRequiredCol ? colLetterToIndex(requiredColumnSettings['__single__']) : -1,
+        lastColIndex: lastColEnabled ? colLetterToIndex(lastColumnSettings['__single__']) : -1
+      };
       fileDataList.forEach(f => {
         if (!f.workbook) {
           reportRows.push({ fileName: f.file.name, status: '실패', reason: reasonTextFor(f) });
@@ -669,186 +909,108 @@
           reportRows.push({ fileName: f.file.name, resultSheet: '병합결과', status: '실패', reason: '병합할 시트가 지정되지 않았습니다' });
           return;
         }
-        const sheet = f.workbook.Sheets[f.selectedSheet];
-        const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
-        const merges = sheet['!merges'] || [];
-        const rangeStartRow = sheet['!ref'] ? XLSX.utils.decode_range(sheet['!ref']).s.r : 0;
-        let firstRowOfFile = true;
-        let rowsAddedForFile = 0;
-        let headerRow = null;
-        const includedRows = [];
-        const excludedRows = [];
-        const mergedCellRows = [];
-
-        rows.forEach((row, idx) => {
-          const originalRow = idx + 1;
-          if (isEmptyOrMeaninglessRowLocal(row)) {
-            if (!firstRowOfFile) excludedRows.push({ row: originalRow, reason: '빈 행 또는 무의미한 행' });
-            return;
-          }
-          let rowCopy = [...row];
-          if (lastColEnabled && lastColIndex >= 0) rowCopy = rowCopy.slice(0, lastColIndex + 1);
-          if (firstRowOfFile) {
-            firstRowOfFile = false;
-            headerRow = originalRow;
-            if (isFirst) {
-              colCount = rowCopy.length;
-              if (includeSourceFile) rowCopy.push('출처파일');
-              allRows.push(rowCopy);
-              isFirst = false;
-            }
-            return;
-          }
-          if (useRequiredCol && reqColIndex >= 0 && rowFailsRequiredColumn(row, reqColIndex)) {
-            excludedRows.push({ row: originalRow, reason: '필수 입력 열 값 없음' });
-            return;
-          }
-          while (rowCopy.length < colCount) rowCopy.push('');
-          if (includeSourceFile) rowCopy.push(f.file.name);
-          allRows.push(rowCopy);
-          includedRows.push(originalRow);
-          rowsAddedForFile++;
-
-          if (merges.length > 0) {
-            const mergedCols = getMergedAwayColumns(merges, rangeStartRow + idx);
-            if (mergedCols.length > 0) {
-              const colLetters = [...new Set(mergedCols)].sort((a, b) => a - b).map(indexToColLetter).join(',');
-              mergedCellRows.push({ row: originalRow, reason: colLetters });
-            }
-          }
-        });
-
-        const dataRangeText = headerRow ? `${headerRow + 1}~${rows.length}행` : `1~${rows.length}행`;
-
-        if (rowsAddedForFile > 0) {
-          reportRows.push({
-            fileName: f.file.name, sourceSheet: f.selectedSheet, status: '성공',
-            headerRow, dataRangeText, rowCount: rowsAddedForFile, excludedRows, mergedCellRows
-          });
-        } else {
-          reportRows.push({
-            fileName: f.file.name, sourceSheet: f.selectedSheet, status: '실패',
-            headerRow, dataRangeText, rowCount: 0, excludedRows, mergedCellRows,
-            reason: '취합 가능한 데이터가 없습니다 (빈 행이거나 필수 입력 열 조건 미충족)'
-          });
-        }
+        collectSheetRows(f, f.selectedSheet, block, opts, reportRows);
       });
-
-      if (allRows.length === 0) {
+      if (block.rows.length === 0) {
         alert('병합할 유효한 데이터가 없습니다.');
         return;
       }
-      const ws = XLSX.utils.aoa_to_sheet(allRows);
-      XLSX.utils.book_append_sheet(wb_out, ws, '병합결과');
-      XLSX.utils.book_append_sheet(wb_out, buildMergeReportSheet(reportRows), '취합_결과_리포트');
+      outSheets.push({ name: '병합결과', rows: block.rows, meta: block.meta });
     } else {
-      const sheetsData = {}, isFirstMap = {}, colCountMap = {};
-      const reportRows = [];
-
+      const blocks = {};
+      const order = [];
       fileDataList.forEach(f => {
         if (!f.workbook) {
           reportRows.push({ fileName: f.file.name, status: '실패', reason: reasonTextFor(f) });
           return;
         }
         f.workbook.SheetNames.forEach(sheetName => {
-          if (!sheetsData[sheetName]) {
-            sheetsData[sheetName] = [];
-            isFirstMap[sheetName] = true;
-            colCountMap[sheetName] = 0;
+          if (!blocks[sheetName]) {
+            blocks[sheetName] = { rows: [], meta: [], isFirst: true, colCount: 0 };
+            order.push(sheetName);
           }
-          const sheet = f.workbook.Sheets[sheetName];
-          const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
-          const merges = sheet['!merges'] || [];
-          const rangeStartRow = sheet['!ref'] ? XLSX.utils.decode_range(sheet['!ref']).s.r : 0;
-          const reqColIndex = useRequiredCol ? colLetterToIndex(requiredColumnSettings[sheetName]) : -1;
-          const lastColIndex = lastColEnabled ? colLetterToIndex(lastColumnSettings[sheetName]) : -1;
-          let firstRowOfFile = true;
-          let rowsAddedForFile = 0;
-          let headerRow = null;
-          const excludedRows = [];
-          const mergedCellRows = [];
-
-          rows.forEach((row, idx) => {
-            const originalRow = idx + 1;
-            if (isEmptyOrMeaninglessRowLocal(row)) {
-              if (!firstRowOfFile) excludedRows.push({ row: originalRow, reason: '빈 행 또는 무의미한 행' });
-              return;
-            }
-            let rowCopy = [...row];
-            if (lastColEnabled && lastColIndex >= 0) rowCopy = rowCopy.slice(0, lastColIndex + 1);
-            if (firstRowOfFile) {
-              firstRowOfFile = false;
-              headerRow = originalRow;
-              if (isFirstMap[sheetName]) {
-                colCountMap[sheetName] = rowCopy.length;
-                if (includeSourceFile) rowCopy.push('출처파일');
-                sheetsData[sheetName].push(rowCopy);
-                isFirstMap[sheetName] = false;
-              }
-              return;
-            }
-            if (useRequiredCol && reqColIndex >= 0 && rowFailsRequiredColumn(row, reqColIndex)) {
-              excludedRows.push({ row: originalRow, reason: '필수 입력 열 값 없음' });
-              return;
-            }
-            while (rowCopy.length < colCountMap[sheetName]) rowCopy.push('');
-            if (includeSourceFile) rowCopy.push(f.file.name);
-            sheetsData[sheetName].push(rowCopy);
-            rowsAddedForFile++;
-
-            if (merges.length > 0) {
-              const mergedCols = getMergedAwayColumns(merges, rangeStartRow + idx);
-              if (mergedCols.length > 0) {
-                const colLetters = [...new Set(mergedCols)].sort((a, b) => a - b).map(indexToColLetter).join(',');
-                mergedCellRows.push({ row: originalRow, reason: colLetters });
-              }
-            }
-          });
-
-          const dataRangeText = headerRow ? `${headerRow + 1}~${rows.length}행` : `1~${rows.length}행`;
-
-          if (rowsAddedForFile > 0) {
-            reportRows.push({
-              fileName: f.file.name, sourceSheet: sheetName, status: '성공',
-              headerRow, dataRangeText, rowCount: rowsAddedForFile, excludedRows, mergedCellRows
-            });
-          } else {
-            reportRows.push({
-              fileName: f.file.name, sourceSheet: sheetName, status: '실패',
-              headerRow, dataRangeText, rowCount: 0, excludedRows, mergedCellRows,
-              reason: '취합 가능한 데이터가 없습니다 (빈 행이거나 필수 입력 열 조건 미충족)'
-            });
-          }
+          const opts = {
+            useRequiredCol, includeSourceFile, lastColEnabled,
+            reqColIndex: useRequiredCol ? colLetterToIndex(requiredColumnSettings[sheetName]) : -1,
+            lastColIndex: lastColEnabled ? colLetterToIndex(lastColumnSettings[sheetName]) : -1
+          };
+          collectSheetRows(f, sheetName, blocks[sheetName], opts, reportRows);
         });
       });
-
-      const sheetNames = Object.keys(sheetsData);
-      if (sheetNames.length === 0) {
+      if (order.length === 0) {
         alert('병합할 유효한 데이터가 없습니다.');
         return;
       }
-      sheetNames.forEach(name => {
-        const rows = sheetsData[name];
-        if (rows.length > 0) {
-          const ws = XLSX.utils.aoa_to_sheet(rows);
-          XLSX.utils.book_append_sheet(wb_out, ws, name);
-        }
+      order.forEach(name => {
+        if (blocks[name].rows.length > 0) outSheets.push({ name, rows: blocks[name].rows, meta: blocks[name].meta });
       });
-      XLSX.utils.book_append_sheet(wb_out, buildMergeReportSheet(reportRows), '취합_결과_리포트');
     }
 
+    const reportAoa = buildMergeReportAoa(reportRows);
+
+    // 1) 서식 유지 저장 시도
+    if (isKeepStyleEnabled() && isExcelJsReady()) {
+      try {
+        const wbStyled = await buildStyledWorkbook(outSheets, reportAoa);
+        await downloadExcelJsWorkbook(wbStyled, '병합결과.xlsx');
+        return;
+      } catch (err) {
+        console.error(err);
+        alert('서식을 복사하는 중 오류가 발생하여 서식 없이(값만) 병합합니다.\n(' + (err && err.message ? err.message : err) + ')');
+      }
+    } else if (isKeepStyleEnabled() && !isExcelJsReady()) {
+      alert('서식 복사용 라이브러리를 불러오지 못해 서식 없이(값만) 병합합니다. 인터넷 연결을 확인해 주세요.');
+    }
+
+    // 2) 서식 없이 값만 저장 (기존 방식)
+    const wb_out = XLSX.utils.book_new();
+    outSheets.forEach(sh => XLSX.utils.book_append_sheet(wb_out, XLSX.utils.aoa_to_sheet(sh.rows), sh.name));
+    XLSX.utils.book_append_sheet(wb_out, XLSX.utils.aoa_to_sheet(reportAoa), '취합_결과_리포트');
     XLSX.writeFile(wb_out, '병합결과.xlsx');
   }
 
+  // 암호가 걸린 파일은 해독된 바이트를 보관해 두었다가, 서식을 읽을 때 사용한다.
+  let __lastDecryptedBytes = null;
+  const _origDecryptAgileXlsx = decryptAgileXlsx;
+  decryptAgileXlsx = function (buf, pw) {
+    const out = _origDecryptAgileXlsx(buf, pw);
+    __lastDecryptedBytes = out;
+    return out;
+  };
+  const _origParseWorkbook = parseWorkbook;
+  parseWorkbook = async function (f) {
+    __lastDecryptedBytes = null;
+    f._exWb = undefined; // 비밀번호/파일이 바뀌었을 수 있으니 서식 캐시 초기화
+    f._plainBytes = null;
+    const ok = await _origParseWorkbook(f);
+    if (ok && __lastDecryptedBytes) f._plainBytes = __lastDecryptedBytes;
+    __lastDecryptedBytes = null;
+    return ok;
+  };
+
   // 병합 버튼 클릭을 캡처 단계에서 가로채, 기존(원본) 병합 로직 대신 위의 커스텀 병합을 실행한다.
   // capture 단계에서 전파를 막으므로 원본 스크립트에 있던 병합 클릭 리스너는 실행되지 않는다.
-  document.addEventListener('click', function (e) {
+  document.addEventListener('click', async function (e) {
     const btn = e.target && e.target.closest && e.target.closest('#merge-btn');
     if (!btn) return;
     e.preventDefault();
     e.stopPropagation();
     if (e.stopImmediatePropagation) e.stopImmediatePropagation();
-    runCustomMerge();
+    if (btn.disabled || btn._running) return;
+    btn._running = true;
+    const originalText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '⏳ 병합 중... (서식 복사에 시간이 걸릴 수 있습니다)';
+    try {
+      await runCustomMerge();
+    } catch (err) {
+      console.error(err);
+      alert('병합 중 오류가 발생했습니다: ' + (err && err.message ? err.message : err));
+    } finally {
+      btn.textContent = originalText;
+      btn._running = false;
+      btn.disabled = !fileDataList.some(f => f.workbook);
+    }
   }, true);
 </script>
 

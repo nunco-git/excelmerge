@@ -245,6 +245,11 @@
       ✂️ 마지막 열 지정
     </label>
 
+    <label style="margin: 0;" title="제목(머리글)이 2~3개 행에 걸쳐 있을 때, 제목 행이 몇 행까지인지 지정합니다. 지정하지 않으면 데이터가 있는 첫 행 1개만 제목으로 봅니다.">
+      <input type="checkbox" id="header-rows-enable" onchange="onHeaderRowsToggle()">
+      🏷️ 제목 행 수 지정 <span class="rc-summary">(제목이 여러 행일 때)</span>
+    </label>
+
     <label style="margin: 0;" title="해당 행이 어느 파일에서 취합된 값인지 확인해서 오류를 찾아낼 수 있음">
       <input type="checkbox" id="include-source-file" checked>
       🗂️ 출처파일명 포함 <span class="rc-summary">(행마다 출처 파일명이 맨 우측 열에 추가됨)</span>
@@ -351,6 +356,21 @@
   // 시트별 설정값 저장소. key: 'single' 모드에서는 '__single__', 'multi' 모드에서는 시트 이름
   let requiredColumnSettings = {};
   let lastColumnSettings = {};
+  let headerRowSettings = {};
+
+  function isHeaderRowsEnabled() {
+    const cb = document.getElementById('header-rows-enable');
+    return !!(cb && cb.checked);
+  }
+
+  function onHeaderRowsToggle() {
+    renderSheetSettingsUI();
+  }
+
+  function getHeaderRowCount(key) {
+    const n = parseInt(headerRowSettings[key], 10);
+    return n >= 1 ? n : 1;
+  }
 
   function getCurrentMergeMode() {
     const el = document.querySelector('input[name="merge-mode"]:checked');
@@ -447,7 +467,10 @@
   const DEFAULT_REQUIRED_COL = 'C';
   const DEFAULT_LAST_COL = 'F';
 
-  function buildSheetSettingField(tagText, titleText, storeObj, key, enabled, defaultLetter) {
+  const HEADER_ROW_OPTIONS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10'];
+
+  function buildSheetSettingField(tagText, titleText, storeObj, key, enabled, defaultLetter, optionList) {
+    const OPTIONS = optionList || COLUMN_LETTER_OPTIONS;
     const wrap = document.createElement('span');
     wrap.className = 'sheet-setting-field';
 
@@ -457,12 +480,12 @@
     wrap.appendChild(tag);
 
     // 아직 정한 적이 없으면 기본값으로 시작 (병합 시에도 이 값이 그대로 사용됨)
-    if (!storeObj[key] || !COLUMN_LETTER_OPTIONS.includes(storeObj[key])) storeObj[key] = defaultLetter;
+    if (!storeObj[key] || !OPTIONS.includes(storeObj[key])) storeObj[key] = defaultLetter;
 
     const select = document.createElement('select');
     select.title = titleText;
     select.disabled = !enabled;
-    COLUMN_LETTER_OPTIONS.forEach(letter => {
+    OPTIONS.forEach(letter => {
       const opt = document.createElement('option');
       opt.value = letter;
       opt.textContent = letter;
@@ -484,7 +507,8 @@
 
     const reqEnabled = isRequiredColEnabled();
     const lastEnabled = isLastColEnabled();
-    list.classList.toggle('open', reqEnabled || lastEnabled);
+    const hdrEnabled = isHeaderRowsEnabled();
+    list.classList.toggle('open', reqEnabled || lastEnabled || hdrEnabled);
 
     const items = collectSheetKeysInOrder();
     list.innerHTML = '';
@@ -502,6 +526,12 @@
       label.className = 'rc-label';
       label.textContent = item.label;
       row.appendChild(label);
+
+      row.appendChild(buildSheetSettingField(
+        '제목행 수',
+        '제목(머리글)이 차지하는 행 수. 데이터가 있는 첫 행부터 이 개수만큼을 제목으로 봅니다.',
+        headerRowSettings, item.key, hdrEnabled, '2', HEADER_ROW_OPTIONS
+      ));
 
       row.appendChild(buildSheetSettingField(
         '필수열',
@@ -932,8 +962,44 @@
     const excludedRows = [];
     const mergedCellRows = [];
 
+    // 제목 행 수를 지정한 경우: 데이터가 있는 첫 행부터 N개 행을 제목으로 취급한다.
+    // (제목 행은 병합 셀 때문에 첫 열만 값이 있어도 '무의미한 행'으로 걸러내지 않는다)
+    const hdrEnabled = !!opts.headerRowsEnabled;
+    let hdrStartIdx = -1, hdrEndIdx = -1;
+    if (hdrEnabled) {
+      hdrStartIdx = rows.findIndex(r => r && r.some(c => String(c ?? '').trim() !== ''));
+      if (hdrStartIdx >= 0) hdrEndIdx = Math.min(hdrStartIdx + opts.headerRows - 1, rows.length - 1);
+    }
+
     rows.forEach((row, idx) => {
       const originalRow = idx + 1;
+      if (hdrEnabled) {
+        if (hdrStartIdx < 0 || idx < hdrStartIdx) return; // 제목 위쪽의 완전히 빈 행
+        if (idx <= hdrEndIdx) {
+          if (idx === hdrStartIdx) {
+            firstRowOfFile = false;
+            headerRow = originalRow;
+            if (block.isFirst) {
+              const hdrRows = [];
+              for (let k = hdrStartIdx; k <= hdrEndIdx; k++) {
+                let rc = [...rows[k]];
+                if (opts.lastColEnabled && opts.lastColIndex >= 0) rc = rc.slice(0, opts.lastColIndex + 1);
+                hdrRows.push(rc);
+              }
+              const width = Math.max(...hdrRows.map(r => r.length));
+              hdrRows.forEach((rc, n) => {
+                while (rc.length < width) rc.push('');
+                if (opts.includeSourceFile) rc.push(n === hdrRows.length - 1 ? '출처파일' : '');
+                block.rows.push(rc);
+                block.meta.push({ f, sheetName, srcRow: rangeStartRow + hdrStartIdx + n + 1, srcCol0: rangeStartCol, dataCols: width, isHeader: true, withSource: opts.includeSourceFile });
+              });
+              block.colCount = width;
+              block.isFirst = false;
+            }
+          }
+          return; // 제목 행은 두 번째 파일부터는 건너뜀
+        }
+      }
       if (isEmptyOrMeaninglessRowLocal(row)) {
         if (!firstRowOfFile) excludedRows.push({ row: originalRow, reason: '빈 행 또는 무의미한 행' });
         return;
@@ -975,7 +1041,10 @@
       }
     });
 
-    const dataRangeText = headerRow ? `${headerRow + 1}~${rows.length}행` : `1~${rows.length}행`;
+    const dataRangeText = hdrEnabled && hdrEndIdx >= 0
+      ? `${hdrEndIdx + 2}~${rows.length}행`
+      : (headerRow ? `${headerRow + 1}~${rows.length}행` : `1~${rows.length}행`);
+    if (hdrEnabled && hdrEndIdx > hdrStartIdx) headerRow = `${hdrStartIdx + 1}~${hdrEndIdx + 1}`;
     if (rowsAddedForFile > 0) {
       reportRows.push({
         fileName: f.file.name, sourceSheet: sheetName, status: '성공',
@@ -995,6 +1064,7 @@
     const useRequiredCol = isRequiredColEnabled();
     const includeSourceFile = isIncludeSourceFileEnabled();
     const lastColEnabled = isLastColEnabled();
+    const headerRowsOn = isHeaderRowsEnabled();
     const outSheets = []; // { name, rows, meta }
     const reportRows = [];
 
@@ -1002,6 +1072,7 @@
       const block = { rows: [], meta: [], isFirst: true, colCount: 0 };
       const opts = {
         useRequiredCol, includeSourceFile, lastColEnabled,
+        headerRowsEnabled: headerRowsOn, headerRows: getHeaderRowCount('__single__'),
         reqColIndex: useRequiredCol ? colLetterToIndex(requiredColumnSettings['__single__']) : -1,
         lastColIndex: lastColEnabled ? colLetterToIndex(lastColumnSettings['__single__']) : -1
       };
@@ -1036,6 +1107,7 @@
           }
           const opts = {
             useRequiredCol, includeSourceFile, lastColEnabled,
+            headerRowsEnabled: headerRowsOn, headerRows: getHeaderRowCount(sheetName),
             reqColIndex: useRequiredCol ? colLetterToIndex(requiredColumnSettings[sheetName]) : -1,
             lastColIndex: lastColEnabled ? colLetterToIndex(lastColumnSettings[sheetName]) : -1
           };

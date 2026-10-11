@@ -308,6 +308,11 @@
   if(!f.workbook)return;
   const sheetName=f.selectedSheet||f.workbook.SheetNames[0];
   const sheet=f.workbook.Sheets[sheetName];
+  if(!sheet){
+    previewTitle.textContent=f.file.name+' ['+sheetName+']';
+    previewWrapper.innerHTML='<p style="text-align:center; color:#94a3b8; margin-top: 50px; font-size:0.85rem;">이 시트는 표시할 셀 데이터가 없습니다 (차트 시트 등).</p>';
+    return;
+  }
   const PREVIEW_ROW_LIMIT=300;
   let truncated=false;
   const originalRef=sheet['!ref'];
@@ -907,6 +912,15 @@
   // 한 파일의 한 시트에서 행을 읽어 block(rows/meta)에 쌓는다. (기존 필터링 규칙 그대로)
   function collectSheetRows(f, sheetName, block, opts, reportRows) {
     const sheet = f.workbook.Sheets[sheetName];
+    // 차트 시트·대화상자 시트처럼 시트 이름은 있지만 셀 데이터가 없는 경우는 건너뛴다
+    if (!sheet) {
+      reportRows.push({
+        fileName: f.file.name, sourceSheet: sheetName, status: '제외',
+        rowCount: 0, excludedRows: [], mergedCellRows: [],
+        reason: '데이터가 없는 시트입니다 (차트 시트 등)'
+      });
+      return;
+    }
     const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
     const merges = sheet['!merges'] || [];
     const range = sheet['!ref'] ? XLSX.utils.decode_range(sheet['!ref']) : { s: { r: 0, c: 0 } };

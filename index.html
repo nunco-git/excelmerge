@@ -187,6 +187,17 @@
       .preview-panel { height: 480px; }
       .editor-resizer { display: none; }
     }
+    /* 병합 완료 안내 팝업 */
+    .done-overlay { position: fixed; inset: 0; background: rgba(15,23,42,0.45); backdrop-filter: blur(3px); display: flex; align-items: center; justify-content: center; z-index: 9999; padding: 16px; animation: done-fade 0.2s ease; }
+    .done-modal { background: white; width: 100%; max-width: 520px; border-radius: 20px; padding: 40px 36px 30px; text-align: center; box-shadow: 0 24px 60px rgba(15,23,42,0.25); animation: done-pop 0.28s cubic-bezier(.2,.9,.3,1.2); }
+    .done-icon { width: 76px; height: 76px; margin: 0 auto 18px; border-radius: 50%; background: linear-gradient(160deg, #34d399, #10b981); color: white; font-size: 40px; font-weight: 800; display: flex; align-items: center; justify-content: center; box-shadow: 0 8px 20px rgba(16,185,129,0.35); }
+    .done-title { margin: 0 0 14px; font-family: 'Jua', 'Pretendard Variable', sans-serif; font-weight: 400; font-size: 1.9rem; color: #065f46; }
+    .done-text { margin: 0 0 26px; font-size: 1.08rem; line-height: 1.7; color: #334155; word-break: keep-all; }
+    .done-sheet { display: inline-block; background: #fff7ed; color: #c2410c; border: 1px solid #fed7aa; border-radius: 8px; padding: 2px 10px; font-weight: 700; }
+    .done-ok { width: 100%; padding: 14px; border: none; border-radius: 12px; background: #10b981; color: white; font-size: 1.1rem; font-weight: 700; cursor: pointer; box-shadow: 0 2px 6px rgba(16,185,129,0.25); }
+    .done-ok:hover { background: #059669; transform: translateY(-1px); }
+    @keyframes done-fade { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes done-pop { from { opacity: 0; transform: scale(0.9) translateY(10px); } to { opacity: 1; transform: none; } }
   </style>
 </head>
 <body>
@@ -1166,6 +1177,30 @@
     return ok;
   };
 
+
+  // 병합 완료 안내 팝업 (브라우저 기본 alert 대신 화면 안에 띄움)
+  function showMergeDoneModal() {
+    const old = document.getElementById('merge-done-overlay');
+    if (old) old.remove();
+    const ov = document.createElement('div');
+    ov.className = 'done-overlay';
+    ov.id = 'merge-done-overlay';
+    ov.innerHTML =
+      '<div class="done-modal" role="dialog" aria-modal="true">' +
+        '<div class="done-icon">✓</div>' +
+        '<h3 class="done-title">병합이 완료되었습니다</h3>' +
+        '<p class="done-text">병합결과 파일의 <span class="done-sheet">취합_결과_리포트</span> 시트에서<br>취합이 안 된 부분을 확인하세요.</p>' +
+        '<button type="button" class="done-ok">확인</button>' +
+      '</div>';
+    const close = () => { ov.remove(); document.removeEventListener('keydown', onKey); };
+    const onKey = (e) => { if (e.key === 'Escape' || e.key === 'Enter') close(); };
+    ov.addEventListener('click', (e) => { if (e.target === ov) close(); });
+    ov.querySelector('.done-ok').addEventListener('click', close);
+    document.addEventListener('keydown', onKey);
+    document.body.appendChild(ov);
+    ov.querySelector('.done-ok').focus();
+  }
+
   // 병합 버튼 클릭을 캡처 단계에서 가로채, 기존(원본) 병합 로직 대신 위의 커스텀 병합을 실행한다.
   // capture 단계에서 전파를 막으므로 원본 스크립트에 있던 병합 클릭 리스너는 실행되지 않는다.
   document.addEventListener('click', async function (e) {
@@ -1184,7 +1219,7 @@
       if (merged) {
         // 다운로드가 먼저 시작되도록 잠시 뒤에 안내 팝업을 띄운다
         setTimeout(() => {
-          alert('✅ 병합이 완료되었습니다.\n\n병합결과 파일의 [취합_결과_리포트] 시트에서 취합이 안 된 부분을 확인하세요.');
+          showMergeDoneModal();
         }, 400);
       }
     } catch (err) {

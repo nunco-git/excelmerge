@@ -1130,7 +1130,7 @@
       try {
         const wbStyled = await buildStyledWorkbook(outSheets, reportAoa);
         await downloadExcelJsWorkbook(wbStyled, '병합결과.xlsx');
-        return;
+        return true;
       } catch (err) {
         console.error(err);
         alert('서식을 복사하는 중 오류가 발생하여 서식 없이(값만) 병합합니다.\n(' + (err && err.message ? err.message : err) + ')');
@@ -1144,6 +1144,7 @@
     outSheets.forEach(sh => XLSX.utils.book_append_sheet(wb_out, XLSX.utils.aoa_to_sheet(sh.rows), sh.name));
     XLSX.utils.book_append_sheet(wb_out, XLSX.utils.aoa_to_sheet(reportAoa), '취합_결과_리포트');
     XLSX.writeFile(wb_out, '병합결과.xlsx');
+    return true;
   }
 
   // 암호가 걸린 파일은 해독된 바이트를 보관해 두었다가, 서식을 읽을 때 사용한다.
@@ -1179,7 +1180,13 @@
     btn.disabled = true;
     btn.textContent = '⏳ 병합 중... (서식 복사에 시간이 걸릴 수 있습니다)';
     try {
-      await runCustomMerge();
+      const merged = await runCustomMerge();
+      if (merged) {
+        // 다운로드가 먼저 시작되도록 잠시 뒤에 안내 팝업을 띄운다
+        setTimeout(() => {
+          alert('✅ 병합이 완료되었습니다.\n\n병합결과 파일의 [취합_결과_리포트] 시트에서 취합이 안 된 부분을 확인하세요.');
+        }, 400);
+      }
     } catch (err) {
       console.error(err);
       alert('병합 중 오류가 발생했습니다: ' + (err && err.message ? err.message : err));
